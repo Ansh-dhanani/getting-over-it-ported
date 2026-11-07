@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>getting over it</title>
+  <meta name="description" content="getting over it - unity 6 webgl port">
   <style>
     html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
     #unity-container { position: fixed; inset: 0; }
@@ -12,9 +13,9 @@
     #unity-loading-container {
       position: absolute; inset: 0;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      background: #000; gap: 12px;
+      background: #000; gap: 14px;
     }
-    #unity-logo { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; } 
+    #unity-logo { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; }
     #unity-progress-shell {
       width: 280px; height: 2px; background: #222;
     }
@@ -34,7 +35,8 @@
   <div id="unity-warning"></div>
 </div>
 <script>
-  var NEON_BASE = "https://br-young-art-be7bd667.storage.c-9.us-east-2.aws.neon.tech/assets/goi/u6_mian_brotli/Build/";
+  var BASE = new URL('./', window.location.href);
+
   var canvas = document.querySelector("#unity-canvas");
   var fullscreenContainer = document.querySelector("#unity-fullscreen-container");
   var progressBar = document.querySelector("#unity-progress-bar");
@@ -49,12 +51,21 @@
   fit();
   window.addEventListener("resize", fit);
 
+  var PARTS = [
+    { name: "parts/data.part1", size: 72622855 },
+    { name: "parts/data.part2", size: 72622855 },
+  ];
+
+  var loaderUrl = BASE + "u6_mian_brotli.loader.js";
+  var frameworkUrl = BASE + "u6_mian_brotli.framework.js.unityweb";
+  var codeUrl = BASE + "u6_mian_brotli.wasm.unityweb";
+
   var TOTAL = 111155 + 73924 + 8921558 + 145245710;
   var SEGMENTS = [
     { upto: (111155) / TOTAL, name: "loader.js" },
     { upto: (111155 + 73924) / TOTAL, name: "framework.js.unityweb" },
     { upto: (111155 + 73924 + 8921558) / TOTAL, name: "wasm.unityweb" },
-    { upto: 1.0,                          name: "data.unityweb" }
+    { upto: 1.0, name: "data.unityweb" }
   ];
 
   function setStatus(pct) {
@@ -67,39 +78,80 @@
     statusEl.textContent = "Downloading " + active + "  " + n + "%";
   }
 
-  var config = {
-    devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
-    arguments: [],
-    dataUrl: NEON_BASE + "u6_mian_brotli.data.unityweb",
-    frameworkUrl: NEON_BASE + "u6_mian_brotli.framework.js.unityweb",
-    codeUrl: NEON_BASE + "u6_mian_brotli.wasm.unityweb",
-    streamingAssetsUrl: "StreamingAssets",
-    fullscreenElementID: "unity-fullscreen-container",
-    companyName: "Bennett Foddy",
-    productName: "Getting Over It",
-    productVersion: "1.7",
-    showBanner: function(msg, type) {
-      var el = document.querySelector("#unity-warning");
-      el.style.display = "block";
-      el.textContent = msg;
-      setTimeout(function(){ el.style.display = "none"; }, 6000);
-    },
-  };
-
-  var script = document.createElement("script");
-  script.src = NEON_BASE + "u6_mian_brotli.loader.js";
-  script.onload = function() {
-    var loading = document.querySelector("#unity-loading-container");
-    createUnityInstance(canvas, config, setStatus).then(function() {
-      loading.style.display = "none";
-    }).catch(function(message) {
-      statusEl.textContent = "Failed to load: " + message;
+  // Fetch the two data parts in parallel; concatenate into a Blob the Unity WebGL runtime can consume.
+  function fetchParts() {
+    var downloaded = 0;
+    return Promise.all(PARTS.map(function(p) {
+      return fetch(BASE + p.name).then(function(res) {
+        if (!res.ok) throw new Error("part fetch failed: " + p.name + " HTTP " + res.status);
+        if (!res.body) throw new Error("part fetch: no streamed body for " + p.name);
+        var reader = res.body.getReader();
+        var chunks = [];
+        var n = 0;
+        return (function pump() {
+          return reader.read().then(function(r) {
+            if (r.done) return new Blob(chunks);
+            chunks.push(r.value);
+            n = (n += r.value.byteLength) / p.size;
+            // Bump the progress bar manually based on bytes vs part size.
+            var pct = (downloaded + n) / 2 || 0;
+            // Unity will re-emit progress afterwards; this is a rough visual.
+            progressBar.style.width = Math.min(99, Math.round(100 * (1 - 0.19) * (downloaded/2 + n/2))) + "px";
+            return pump();
+          });
+        })();
+      });
+    })).then(function(blobs) {
+      downloaded = 1;
+      return new Blob(blobs, { type: "application/octet-stream" });
     });
-  };
-  script.onerror = function() {
-    statusEl.textContent = "Asset host unreachable.";
-  };
-  document.body.appendChild(script);
+  }
+
+  function boot(dataUrl) {
+    var config = {
+      devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+      arguments: [],
+      dataUrl: dataUrl,
+      frameworkUrl: frameworkUrl,
+      codeUrl: codeUrl,
+      streamingAssetsUrl: "StreamingAssets",
+      fullscreenElementID: "unity-fullscreen-container",
+      companyName: "Bennett Foddy",
+      productName: "Getting Over It",
+      productVersion: "1.7",
+      showBanner: function(msg, type) {
+        var el = document.querySelector("#unity-warning");
+        el.style.display = "block";
+        el.textContent = msg;
+        setTimeout(function(){ el.style.display = "none"; }, 6000);
+      },
+    };
+
+    var script = document.createElement("script");
+    script.src = loaderUrl;
+    script.onload = function() {
+      var loading = document.querySelector("#unity-loading-container");
+      createUnityInstance(canvas, config, setStatus).then(function() {
+        loading.style.display = "none";
+      }).catch(function(message) {
+        statusEl.textContent = "Failed to load: " + message;
+      });
+    };
+    script.onerror = function() {
+      statusEl.textContent = "Asset host unreachable.";
+    };
+    document.body.appendChild(script);
+  }
+
+  // Load framework + wasm first (Unity loader handles them), only fetch parts to feed dataUrl.
+  statusEl.textContent = "Connecting to asset host…";
+  fetchParts().then(function(blob) {
+    var url = URL.createObjectURL(blob);
+    statusEl.textContent = "Starting Unity…";
+    boot(url);
+  }).catch(function(err) {
+    statusEl.textContent = "Download failed: " + err.message;
+  });
 </script>
 </body>
 </html>
