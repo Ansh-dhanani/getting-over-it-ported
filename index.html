@@ -77,7 +77,7 @@
   }
 
   function fetchOne(name, size, onChunk) {
-    return fetch(BASE + name).then(function(res) {
+    return fetch(BASE + name, { cache: "force-cache" }).then(function(res) {
       if (!res.ok) throw new Error("fetch " + name + " HTTP " + res.status);
       if (!res.body) throw new Error("fetch " + name + ": no stream");
       var reader = res.body.getReader();
