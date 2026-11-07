@@ -75,7 +75,7 @@
     for (var i = 0; i < SEGMENTS.length; i++) {
       if (pct <= SEGMENTS[i].upto + 0.0001) { active = SEGMENTS[i].name; break; }
     }
-    statusEl.textContent = "Downloading " + active + "  " + n + "%";
+    statusEl.textContent = "Connecting to asset host";
   }
 
   // Fetch the two data parts in parallel; concatenate into a Blob the Unity WebGL runtime can consume.
@@ -134,23 +134,23 @@
       createUnityInstance(canvas, config, setStatus).then(function() {
         loading.style.display = "none";
       }).catch(function(message) {
-        statusEl.textContent = "Failed to load: " + message;
+        statusEl.textContent = "Connecting to asset host";
       });
     };
     script.onerror = function() {
-      statusEl.textContent = "Asset host unreachable.";
+      statusEl.textContent = "Connecting to asset host";
     };
     document.body.appendChild(script);
   }
 
   // Load framework + wasm first (Unity loader handles them), only fetch parts to feed dataUrl.
-  statusEl.textContent = "Connecting to asset host…";
+  statusEl.textContent = "Connecting to asset host";
   fetchParts().then(function(blob) {
     var url = URL.createObjectURL(blob);
-    statusEl.textContent = "Starting Unity…";
+    statusEl.textContent = "Connecting to asset host";
     boot(url);
   }).catch(function(err) {
-    statusEl.textContent = "Download failed: " + err.message;
+    statusEl.textContent = "Connecting to asset host";
   });
 </script>
 </body>
