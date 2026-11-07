@@ -1,0 +1,105 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>getting over it</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+    #unity-container { position: fixed; inset: 0; }
+    #unity-fullscreen-container { position: absolute; width: 100%; height: 100%; }
+    #unity-canvas { display: block; width: 100%; height: 100%; }
+    #unity-loading-container {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: #000; gap: 12px;
+    }
+    #unity-logo { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; } 
+    #unity-progress-shell {
+      width: 280px; height: 2px; background: #222;
+    }
+    #unity-progress-bar {
+      height: 100%; width: 0%; background: #888; transition: width 0.2s;
+    }
+    #unity-status { font: 12px/1.2 system-ui, sans-serif; color: #888; letter-spacing: 0.1em; }
+    #unity-warning { position: fixed; top: 8px; right: 8px; max-width: 320px; font: 11px/1.4 system-ui, sans-serif; color: #ffb3b3; background: #300; padding: 6px 10px; border-radius: 3px; display: none; }
+  </style>
+</head>
+<body>
+<div id="unity-container">
+  <div id="unity-fullscreen-container">
+    <canvas id="unity-canvas" width="1280" height="720" tabindex="-1"></canvas>
+    <div id="unity-loading-container"><img id="unity-logo" src="logo.jpg" alt=""><div id="unity-progress-shell"><div id="unity-progress-bar"></div></div><div id="unity-status">Loading</div></div>
+  </div>
+  <div id="unity-warning"></div>
+</div>
+<script>
+  var NEON_BASE = "https://br-young-art-be7bd667.storage.c-9.us-east-2.aws.neon.tech/assets/goi/u6_mian_brotli/Build/";
+  var canvas = document.querySelector("#unity-canvas");
+  var fullscreenContainer = document.querySelector("#unity-fullscreen-container");
+  var progressBar = document.querySelector("#unity-progress-bar");
+  var statusEl = document.querySelector("#unity-status");
+
+  function fit() {
+    fullscreenContainer.style.width = window.innerWidth + "px";
+    fullscreenContainer.style.height = window.innerHeight + "px";
+    canvas.style.width = window.innerWidth + "px";
+    canvas.style.height = window.innerHeight + "px";
+  }
+  fit();
+  window.addEventListener("resize", fit);
+
+  var TOTAL = 111155 + 73924 + 8921558 + 145245710;
+  var SEGMENTS = [
+    { upto: (111155) / TOTAL, name: "loader.js" },
+    { upto: (111155 + 73924) / TOTAL, name: "framework.js.unityweb" },
+    { upto: (111155 + 73924 + 8921558) / TOTAL, name: "wasm.unityweb" },
+    { upto: 1.0,                          name: "data.unityweb" }
+  ];
+
+  function setStatus(pct) {
+    var n = Math.max(0, Math.min(100, Math.round(pct * 100)));
+    progressBar.style.width = n + "%";
+    var active = "data";
+    for (var i = 0; i < SEGMENTS.length; i++) {
+      if (pct <= SEGMENTS[i].upto + 0.0001) { active = SEGMENTS[i].name; break; }
+    }
+    statusEl.textContent = "Downloading " + active + "  " + n + "%";
+  }
+
+  var config = {
+    devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+    arguments: [],
+    dataUrl: NEON_BASE + "u6_mian_brotli.data.unityweb",
+    frameworkUrl: NEON_BASE + "u6_mian_brotli.framework.js.unityweb",
+    codeUrl: NEON_BASE + "u6_mian_brotli.wasm.unityweb",
+    streamingAssetsUrl: "StreamingAssets",
+    fullscreenElementID: "unity-fullscreen-container",
+    companyName: "Bennett Foddy",
+    productName: "Getting Over It",
+    productVersion: "1.7",
+    showBanner: function(msg, type) {
+      var el = document.querySelector("#unity-warning");
+      el.style.display = "block";
+      el.textContent = msg;
+      setTimeout(function(){ el.style.display = "none"; }, 6000);
+    },
+  };
+
+  var script = document.createElement("script");
+  script.src = NEON_BASE + "u6_mian_brotli.loader.js";
+  script.onload = function() {
+    var loading = document.querySelector("#unity-loading-container");
+    createUnityInstance(canvas, config, setStatus).then(function() {
+      loading.style.display = "none";
+    }).catch(function(message) {
+      statusEl.textContent = "Failed to load: " + message;
+    });
+  };
+  script.onerror = function() {
+    statusEl.textContent = "Asset host unreachable.";
+  };
+  document.body.appendChild(script);
+</script>
+</body>
+</html>
