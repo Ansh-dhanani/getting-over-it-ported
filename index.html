@@ -31,7 +31,7 @@
 <body>
 <div id="unity-container">
   <div id="unity-fullscreen-container">
-    <canvas id="unity-canvas" width="1280" height="720" tabindex="-1"></canvas>
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
     <div id="unity-loading-container">
       <img id="unity-logo" src="logo.jpg" alt="">
       <div id="unity-progress-shell"><div id="unity-progress-bar"></div></div>
@@ -49,10 +49,13 @@
   var statusEl = document.querySelector("#unity-status");
 
   function fit() {
-    fullscreenContainer.style.width = window.innerWidth + "px";
-    fullscreenContainer.style.height = window.innerHeight + "px";
-    canvas.style.width = window.innerWidth + "px";
-    canvas.style.height = window.innerHeight + "px";
+    var w = window.innerWidth, h = window.innerHeight;
+    fullscreenContainer.style.width = w + "px";
+    fullscreenContainer.style.height = h + "px";
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    canvas.width = w;
+    canvas.height = h;
   }
   fit();
   window.addEventListener("resize", fit);
