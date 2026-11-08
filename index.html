@@ -7,37 +7,97 @@
   <link rel="icon" type="image/jpeg" href="logo.jpg">
   <meta name="description" content="getting over it - unity 6 webgl port">
   <style>
-    html, body { height: 100%; margin: 0; background: #000; overflow: hidden; }
+    :root {
+      --ink: #f4f4f4;
+      --ink-2: #a8a8a8;
+      --ink-3: #5e5e5e;
+      --track: #1c1c1c;
+      --bg: #000;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      height: 100%; margin: 0; background: var(--bg); overflow: hidden;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    }
+
     #unity-container { position: fixed; inset: 0; }
-    #unity-fullscreen-container { position: absolute; width: 100%; height: 100%; }
-    #unity-canvas { display: block; width: 100%; height: 100%; }
+    #unity-fullscreen-container { position: absolute; inset: 0; }
+    #unity-canvas { display: block; width: 100%; height: 100%; background: var(--bg); }
+
+    /* ---------- loading ---------- */
     #unity-loading-container {
-      position: absolute; inset: 0;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      background: #000; gap: 14px;
+      position: absolute; inset: 0; z-index: 10;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      background: var(--bg); user-select: none;
+      opacity: 0; transition: opacity .55s ease;
     }
-    #unity-logo { width: 160px; height: 160px; border-radius: 50%; object-fit: cover; }
-    #unity-progress-shell {
-      width: 340px; height: 2px; background: #222;
+    #unity-loading-container.in { opacity: 1; }
+    #unity-loading-container.out { opacity: 0; pointer-events: none; }
+
+    .loader-mark {
+      width: 88px; height: 88px; border-radius: 50%;
+      object-fit: cover; opacity: .82;
+      margin-bottom: 26px;
     }
-    #unity-progress-bar {
-      height: 100%; width: 0%; background: #888; transition: width 0.15s linear;
+
+    .loader-title {
+      font: 500 10px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .42em; text-indent: .42em; text-transform: uppercase;
+      color: var(--ink-3); margin-bottom: 34px;
     }
-    #unity-progress-shell.indeterminate #unity-progress-bar {
-      width: 34% !important;
-      animation: goi-slide 1.15s ease-in-out infinite;
+
+    .loader-track {
+      width: min(300px, 62vw); height: 1px;
+      background: var(--track); border-radius: 1px;
+      overflow: hidden; margin-bottom: 18px;
     }
-    @keyframes goi-slide {
-      0%   { transform: translateX(-105%); }
-      100% { transform: translateX(300%); }
+    .loader-fill {
+      height: 100%; width: 0%; background: var(--ink);
+      transition: width .3s cubic-bezier(.22,.61,.36,1);
     }
-    #unity-status { font: 12px/1.3 system-ui, sans-serif; color: #888; letter-spacing: 0.08em; min-width: 340px; text-align: center; }
-    #unity-substatus { font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: #5a5a5a;
-      min-width: 340px; min-height: 16px; text-align: center; }
-    #unity-cache-badge { position: fixed; left: 10px; bottom: 10px; z-index: 20;
-      font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: #6c6;
-      background: rgba(0,0,0,.65); border: 1px solid #222; padding: 4px 8px; border-radius: 3px; }
-    #unity-warning { position: fixed; top: 8px; right: 8px; max-width: 320px; font: 11px/1.4 system-ui, sans-serif; color: #ffb3b3; background: #300; padding: 6px 10px; border-radius: 3px; display: none; }
+    .loader-track.indeterminate .loader-fill {
+      width: 30% !important;
+      animation: glide 1.25s cubic-bezier(.65,0,.35,1) infinite;
+    }
+    @keyframes glide {
+      0%   { transform: translateX(-120%); }
+      100% { transform: translateX(340%); }
+    }
+
+    .loader-line {
+      height: 18px; display: flex; align-items: center; gap: 10px;
+      font: 400 11px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .06em; color: var(--ink-2);
+      font-variant-numeric: tabular-nums;
+    }
+    .loader-line .dot { width: 2px; height: 2px; border-radius: 50%; background: var(--ink-3); }
+
+    .loader-meta {
+      height: 16px; margin-top: 9px;
+      font: 400 10px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+      letter-spacing: .04em; color: var(--ink-3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    #unity-warning {
+      position: fixed; top: 12px; right: 12px; max-width: 320px;
+      font: 11px/1.5 system-ui, sans-serif; color: #ffb4b4;
+      background: #1a0b0b; border: 1px solid #2a1414;
+      padding: 8px 12px; border-radius: 4px; display: none; z-index: 20;
+    }
+
+    @media (max-width: 520px) {
+      .loader-mark { width: 68px; height: 68px; margin-bottom: 22px; }
+      .loader-title { margin-bottom: 26px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #unity-loading-container, .loader-fill { transition: none; }
+      .loader-track.indeterminate .loader-fill { animation-duration: 2.5s; }
+    }
   </style>
   <script defer src="https://stats.anshdhanani.is-a.dev/script.js" data-website-id="90edeac2-132f-4222-bef5-1a7abc400165"></script>
   <script defer src="https://stats.anshdhanani.is-a.dev/recorder.js" data-website-id="90edeac2-132f-4222-bef5-1a7abc400165"></script>
@@ -46,93 +106,62 @@
 <div id="unity-container">
   <div id="unity-fullscreen-container">
     <canvas id="unity-canvas" tabindex="-1"></canvas>
+
     <div id="unity-loading-container">
-      <img id="unity-logo" src="logo.jpg" alt="">
-      <div id="unity-progress-shell"><div id="unity-progress-bar"></div></div>
-      <div id="unity-status">Checking cache…</div>
-      <div id="unity-substatus"></div>
+      <img class="loader-mark" src="logo.jpg" alt="">
+      <div class="loader-title">getting over it</div>
+      <div class="loader-track"><div class="loader-fill"></div></div>
+      <div class="loader-line">
+        <span id="unity-status">checking</span>
+      </div>
+      <div class="loader-meta" id="unity-substatus"></div>
     </div>
   </div>
   <div id="unity-warning"></div>
-  <div id="unity-cache-badge">cache: checking…</div>
 </div>
 <script>
   var BASE = new URL("./", window.location.href);
 
   var canvas = document.querySelector("#unity-canvas");
   var fullscreenContainer = document.querySelector("#unity-fullscreen-container");
-  var progressShell = document.querySelector("#unity-progress-shell");
-  var progressBar = document.querySelector("#unity-progress-bar");
-  var statusEl = document.querySelector("#unity-status");
   var loadingEl = document.querySelector("#unity-loading-container");
-  var badgeEl = document.querySelector("#unity-cache-badge");
+  var trackEl = document.querySelector(".loader-track");
+  var fillEl = document.querySelector(".loader-fill");
+  var statusEl = document.querySelector("#unity-status");
+  var subEl = document.querySelector("#unity-substatus");
 
   function log() {
     try {
-      var args = Array.prototype.slice.call(arguments);
-      console.log.apply(console, ["[goi]"].concat(args));
+      console.log.apply(console, ["[goi]"].concat(Array.prototype.slice.call(arguments)));
     } catch (e) {}
   }
 
-  function setBadge(text, color) {
-    if (!badgeEl) return;
-    badgeEl.textContent = text;
-    badgeEl.style.color = color || "#6c6";
-  }
-
-  // ---- staged loading UI -------------------------------------------------
-  var subEl = document.querySelector("#unity-substatus");
-  var t0 = performance.now();
-  var tickId = null;
-
-  function secs() {
-    return ((performance.now() - t0) / 1000).toFixed(1) + "s";
-  }
-
-  function setStage(main, sub) {
-    statusEl.textContent = main;
-    if (subEl && sub !== undefined) subEl.textContent = sub;
-  }
-
-  function setIndeterminate(on) {
-    if (!progressShell) return;
-    progressShell.classList.toggle("indeterminate", !!on);
-    if (on) progressBar.style.width = "";
-  }
-
-  // Live-updating sub-line so a long local step never looks frozen.
-  function tick(fn) {
-    stopTick();
-    if (subEl) subEl.textContent = fn();
-    tickId = setInterval(function () { if (subEl) subEl.textContent = fn(); }, 200);
-  }
-
-  function stopTick() {
-    if (tickId) { clearInterval(tickId); tickId = null; }
-  }
-
+  // Canvas is exactly the viewport; Unity owns the drawing buffer.
   function fit() {
-    var w = window.innerWidth, h = window.innerHeight;
+    var w = window.innerWidth;
+    var h = window.innerHeight;
     fullscreenContainer.style.width = w + "px";
     fullscreenContainer.style.height = h + "px";
     canvas.style.width = w + "px";
     canvas.style.height = h + "px";
-    canvas.width = w;
-    canvas.height = h;
   }
   fit();
   window.addEventListener("resize", fit);
+  window.addEventListener("orientationchange", fit);
 
+  // ---- constants ---------------------------------------------------------
   var PART_NAMES = ["parts/data.part1", "parts/data.part2"];
   var PART_SIZES = [72622855, 72622855];
   var TOTAL_BYTES = PART_SIZES[0] + PART_SIZES[1];
   var SIZE_MB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
 
-  // Bump DATA_BUILD whenever the game files change. It versions both the
-  // stored archive and the part URLs, so a new build can never boot stale data.
-  var DATA_BUILD = "brotli-2026-11-08";
-  var DATA_CACHE = "goi-data-v1";
-  var DATA_KEY = new URL("__goi_game_data." + DATA_BUILD + ".bin", BASE).href;
+  var DATA_BUILD = "brotli-2026-11-08";  // bump when game files change
+  var IDB_NAME = "goi-archive";
+  var IDB_STORE = "files";
+  var IDB_DATA_KEY = "data:" + DATA_BUILD;
+  var IDB_CHUNK_NS = "chunk:" + DATA_BUILD + ":";
+  var CHUNK_SIZE = 2 * 1024 * 1024;   // 2 MiB resumable chunks
+  var CONCURRENCY = 4;                // parallel range requests per part
 
   var PART_URLS = PART_NAMES.map(function (n) { return new URL(n, BASE).href; });
   var PART_FETCH_URLS = PART_NAMES.map(function (n) {
@@ -143,13 +172,59 @@
   var frameworkUrl = BASE + "u6_mian_brotli.framework.js.unityweb";
   var codeUrl = BASE + "u6_mian_brotli.wasm.unityweb";
 
-  // ---- IndexedDB, primary store (far more reliable than Cache Storage) ----
-  var IDB_NAME = "goi-archive";
-  var IDB_STORE = "files";
-  var IDB_DATA_KEY = "data:" + DATA_BUILD;
-  var IDB_CHUNK_NS = "chunk:" + DATA_BUILD + ":";
-  var CHUNK_SIZE = 4 * 1024 * 1024; // 4 MiB per resumable chunk
+  // ---- loading UI --------------------------------------------------------
+  var t0 = performance.now();
+  var tickId = null;
 
+  requestAnimationFrame(function () { loadingEl.classList.add("in"); });
+
+  function secs() { return ((performance.now() - t0) / 1000).toFixed(1) + "s"; }
+  function fmtMB(b) { return (b / (1024 * 1024)).toFixed(1) + " MB"; }
+
+  function fmtTime(s) {
+    if (!isFinite(s) || s <= 0) return null;
+    s = Math.round(s);
+    if (s < 60) return s + "s";
+    var m = Math.floor(s / 60);
+    var r = s % 60;
+    return m + "m " + (r < 10 ? "0" : "") + r + "s";
+  }
+
+  // status = the one quiet line; meta = the numbers underneath.
+  function state(main, meta) {
+    statusEl.textContent = main;
+    if (meta !== undefined) subEl.textContent = meta || "";
+  }
+
+  function setSub(meta) { subEl.textContent = meta || ""; }
+
+  function setBar(fraction) {
+    trackEl.classList.remove("indeterminate");
+    fillEl.style.width = (Math.max(0, Math.min(1, fraction)) * 100).toFixed(2) + "%";
+  }
+
+  function setIndeterminate() {
+    trackEl.classList.add("indeterminate");
+    fillEl.style.width = "";
+  }
+
+  function tick(fn) {
+    stopTick();
+    setSub(fn());
+    tickId = setInterval(function () { setSub(fn()); }, 250);
+  }
+
+  function stopTick() {
+    if (tickId) { clearInterval(tickId); tickId = null; }
+  }
+
+  function hideLoader() {
+    stopTick();
+    loadingEl.classList.add("out");
+    setTimeout(function () { loadingEl.style.display = "none"; }, 600);
+  }
+
+  // ---- IndexedDB ---------------------------------------------------------
   var idbPromise = null;
   var idbOk = true;
   var memChunks = [[], []];
@@ -237,32 +312,19 @@
     return (typeof caches !== "undefined") && (typeof Response !== "undefined") && window.isSecureContext;
   }
 
-  // Ask the browser to keep our archive instead of evicting it under disk pressure.
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persist().catch(function () {});
   }
-  // The old service worker is no longer used; retire any leftover registration.
   if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
     navigator.serviceWorker.getRegistrations().then(function (regs) {
       regs.forEach(function (r) { r.unregister(); });
     }).catch(function () {});
   }
 
-  // ---- progress ----
-  function setDownloadStatus(bytes, resumed) {
-    var pct = Math.min(100, Math.round((bytes / TOTAL_BYTES) * 100));
-    progressBar.style.width = pct + "%";
-    var mb = (bytes / (1024 * 1024)).toFixed(1);
-    var label = (resumed && bytes > 0) ? "Resuming" : "Downloading";
-    statusEl.textContent = label + " " + mb + " MB / " + SIZE_MB + " MB (" + pct + "%) · resumable";
-  }
-
-  // ---- stored archive lookup ----
+  // ---- stored archive ----------------------------------------------------
   function readIndexedArchive() {
     return idbGet(IDB_DATA_KEY).then(function (rec) {
-      if (rec && rec.blob && rec.size === TOTAL_BYTES) {
-        return { blob: rec.blob, source: "indexeddb" };
-      }
+      if (rec && rec.blob && rec.size === TOTAL_BYTES) return { blob: rec.blob, source: "IndexedDB" };
       if (rec) idbDelete([IDB_DATA_KEY]).catch(function () {});
       return null;
     }).catch(function (err) {
@@ -271,30 +333,27 @@
     });
   }
 
-  // Legacy Cache Storage lookup (also migrates the old split parts).
   function readCacheStorageArchive() {
     if (!cacheReady()) return Promise.resolve(null);
+    var archiveKey = new URL("__goi_game_data." + DATA_BUILD + ".bin", BASE).href;
     return caches.keys().then(function (names) {
       return Promise.all(names.map(function (name) {
         return caches.open(name).then(function (cache) {
           return Promise.all([
-            cache.match(DATA_KEY),
+            cache.match(archiveKey),
             cache.match(PART_URLS[0], { ignoreSearch: true }),
             cache.match(PART_URLS[1], { ignoreSearch: true })
           ]).then(function (hits) {
             if (hits[0]) {
               return hits[0].blob().then(function (blob) {
-                if (blob.size === TOTAL_BYTES) return { blob: blob, source: "cachestorage" };
-                return caches.open(name).then(function (c) { return c.delete(DATA_KEY); }).then(function () { return null; });
+                if (blob.size === TOTAL_BYTES) return { blob: blob, source: "Cache Storage" };
+                return cache.delete(archiveKey).then(function () { return null; });
               });
             }
             if (hits[1] && hits[2]) {
               return Promise.all([hits[1].blob(), hits[2].blob()]).then(function (bs) {
                 if (bs[0].size + bs[1].size !== TOTAL_BYTES) return null;
-                return {
-                  blob: new Blob(bs, { type: "application/octet-stream" }),
-                  source: "legacy-parts"
-                };
+                return { blob: new Blob(bs, { type: "application/octet-stream" }), source: "saved parts" };
               });
             }
             return null;
@@ -307,25 +366,9 @@
     }).catch(function () { return null; });
   }
 
-  function storeInCacheStorage(blob) {
-    if (!cacheReady()) return Promise.resolve(false);
-    return caches.open(DATA_CACHE).then(function (cache) {
-      return cache.put(DATA_KEY, new Response(blob, {
-        headers: { "Content-Type": "application/octet-stream" }
-      }));
-    }).then(function () { return true; }).catch(function (err) {
-      log("Cache Storage write failed", err);
-      return false;
-    });
-  }
-
-  // ---- chunk helpers ----
-  function partChunkCount(part) {
-    return Math.ceil(PART_SIZES[part] / CHUNK_SIZE);
-  }
-  function chunkKey(part, i) {
-    return IDB_CHUNK_NS + part + ":" + i;
-  }
+  // ---- chunks ------------------------------------------------------------
+  function partChunkCount(part) { return Math.ceil(PART_SIZES[part] / CHUNK_SIZE); }
+  function chunkKey(part, i) { return IDB_CHUNK_NS + part + ":" + i; }
   function chunkExpectedSize(part, i) {
     return Math.min(PART_SIZES[part], (i + 1) * CHUNK_SIZE) - i * CHUNK_SIZE;
   }
@@ -336,7 +379,8 @@
     for (var i = 0; i < count; i++) keys.push(chunkKey(part, i));
     memChunks[part] = [];
     return idbGetMany(keys).then(function (recs) {
-      var bytes = 0, filled = 0;
+      var bytes = 0;
+      var filled = 0;
       for (var i = 0; i < recs.length; i++) {
         var r = recs[i];
         if (!r || !r.byteLength || r.byteLength !== chunkExpectedSize(part, i)) break;
@@ -353,74 +397,103 @@
     });
   }
 
-  // Downloads one part in 4 MiB chunks, skipping chunks already on disk.
-  function downloadPartResumable(part, onProgress) {
+  function storeChunk(part, idx, buf) {
+    memChunks[part][idx] = buf;
+    if (!idbOk) return Promise.resolve(false);
+    return idbPut(chunkKey(part, idx), buf).catch(function (err) {
+      log("IndexedDB chunk write failed; continuing without resume", err);
+      idbOk = false;
+      return false;
+    });
+  }
+
+  function fetchRange(url, start, end, attempt) {
+    attempt = attempt || 1;
+    return fetch(url, { headers: { "Range": "bytes=" + start + "-" + end } })
+      .then(function (res) {
+        if (res.status === 206) return res.arrayBuffer();
+        if (res.status === 200) {
+          var err = new Error("server ignored Range");
+          err.noRange = true;
+          throw err;
+        }
+        throw new Error("HTTP " + res.status);
+      })
+      .catch(function (err) {
+        if (err.noRange) throw err;
+        if (attempt >= 3) throw err;
+        return new Promise(function (r) { setTimeout(r, 300 * attempt); })
+          .then(function () { return fetchRange(url, start, end, attempt + 1); });
+      });
+  }
+
+  function downloadPartWhole(part, onProgress) {
+    var size = PART_SIZES[part];
+    var url = PART_FETCH_URLS[part];
+    var count = partChunkCount(part);
+    var have = 0;
+    return fetch(url).then(function (res) {
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.arrayBuffer();
+    }).then(function (buf) {
+      var chain = Promise.resolve();
+      for (var i = 0; i < count; i++) {
+        (function (idx) {
+          chain = chain.then(function () {
+            var s = idx * CHUNK_SIZE;
+            var e = Math.min(size, s + CHUNK_SIZE);
+            var slice = buf.slice(s, e);
+            return storeChunk(part, idx, slice).then(function () {
+              have += slice.byteLength;
+              onProgress(part, have, false);
+            });
+          });
+        })(i);
+      }
+      return chain;
+    });
+  }
+
+  function downloadPart(part, onProgress) {
     var size = PART_SIZES[part];
     var url = PART_FETCH_URLS[part];
     var count = partChunkCount(part);
 
     return existingChunks(part).then(function (st) {
+      if (st.filled >= count) {
+        onProgress(part, st.bytes, true);
+        return;
+      }
+
       var next = st.filled;
       var have = st.bytes;
       onProgress(part, have, next > 0);
 
-      function storeChunk(idx, buf) {
-        memChunks[part][idx] = buf;
-        if (!idbOk) return Promise.resolve(false);
-        return idbPut(chunkKey(part, idx), buf).catch(function (err) {
-          log("IndexedDB chunk write failed; resume disabled for this session", err);
-          idbOk = false;
-          return false;
-        });
-      }
-
-      function step() {
+      function worker() {
         if (next >= count) return Promise.resolve();
-        var start = next * CHUNK_SIZE;
+        var idx = next++;
+        var start = idx * CHUNK_SIZE;
         var end = Math.min(size, start + CHUNK_SIZE) - 1;
-
-        return fetch(url, {
-          headers: { "Range": "bytes=" + start + "-" + end },
-          cache: "force-cache"
-        }).then(function (res) {
-          if (res.status === 206) {
-            return res.arrayBuffer().then(function (buf) {
-              var idx = next;
-              return storeChunk(idx, buf).then(function () {
-                have += buf.byteLength;
-                next = idx + 1;
-                onProgress(part, have, false);
-                return step();
-              });
-            });
-          }
-
-          if (res.ok && res.status === 200) {
-            // Server ignored Range: take the whole part once, then split it.
-            return res.arrayBuffer().then(function (buf) {
-              var chain = Promise.resolve();
-              for (var i = next; i < count; i++) {
-                (function (idx) {
-                  chain = chain.then(function () {
-                    var s = idx * CHUNK_SIZE;
-                    var e = Math.min(size, s + CHUNK_SIZE);
-                    var slice = buf.slice(s, e);
-                    return storeChunk(idx, slice).then(function () {
-                      have += slice.byteLength;
-                      onProgress(part, have, false);
-                    });
-                  });
-                })(i);
-              }
-              return chain.then(function () { next = count; });
-            });
-          }
-
-          throw new Error("HTTP " + res.status + " for " + url);
+        return fetchRange(url, start, end).then(function (buf) {
+          return storeChunk(part, idx, buf).then(function () {
+            have += buf.byteLength;
+            onProgress(part, have, false);
+            return worker();
+          });
         });
       }
 
-      return step();
+      var workers = [];
+      for (var i = 0; i < CONCURRENCY; i++) workers.push(worker());
+
+      return Promise.all(workers).catch(function (err) {
+        if (err && err.noRange) {
+          log("range requests unsupported — falling back to single stream");
+          memChunks[part] = [];
+          return downloadPartWhole(part, onProgress);
+        }
+        throw err;
+      });
     });
   }
 
@@ -448,14 +521,16 @@
   function persistArchive(blob) {
     return idbPut(IDB_DATA_KEY, { blob: blob, size: blob.size, build: DATA_BUILD, savedAt: Date.now() })
       .then(function () {
-        log("archive stored in IndexedDB (" + SIZE_MB + " MB)");
-        // IndexedDB has it; drop any duplicate Cache Storage copy.
-        if (cacheReady()) caches.open(DATA_CACHE).then(function (c) { c.delete(DATA_KEY); }).catch(function () {});
+        log("archive stored (" + fmtMB(blob.size) + ")");
+        if (cacheReady()) {
+          var archiveKey = new URL("__goi_game_data." + DATA_BUILD + ".bin", BASE).href;
+          caches.open("goi-data-v1").then(function (c) { c.delete(archiveKey); }).catch(function () {});
+        }
         return true;
       })
       .catch(function (err) {
-        log("IndexedDB archive store failed; trying Cache Storage", err);
-        return storeInCacheStorage(blob);
+        log("IndexedDB store failed", err);
+        return false;
       });
   }
 
@@ -467,7 +542,7 @@
     return cleanup.then(function () { memChunks = [[], []]; });
   }
 
-  // ---- boot ----
+  // ---- boot --------------------------------------------------------------
   function boot(dataUrl, cached) {
     var config = {
       devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
@@ -491,73 +566,96 @@
     var script = document.createElement("script");
     script.src = loaderUrl;
     script.onload = function () {
+      var startedEngine = performance.now();
+
       if (cached) {
-        setIndeterminate(true);
-        setStage("Game data ready — no download", "");
-        tick(function () {
-          return SIZE_MB + " MB already on this device · unpacking locally · " + secs();
-        });
+        setIndeterminate();
+        state("starting from saved copy", "no download · " + SIZE_MB + " MB");
+        tick(function () { return "unpacking · " + secs(); });
       } else {
-        setIndeterminate(false);
-        progressBar.style.width = "100%";
-        setStage("Starting…", "engine " + secs());
+        setBar(1);
+        state("starting", "engine · " + secs());
       }
 
       createUnityInstance(canvas, config, function (progress) {
         var n = Math.max(0, Math.min(100, Math.round(progress * 100)));
         if (cached) {
-          statusEl.textContent = "Unpacking game data — no download · " + n + "%";
+          state("unpacking", "no download · " + n + "%");
         } else {
-          progressBar.style.width = n + "%";
-          statusEl.textContent = "Starting… " + n + "%";
+          setBar(progress);
+          state("starting", "engine · " + n + "%");
         }
       }).then(function () {
         stopTick();
-        log("timeline: game ready in " + secs());
-        setStage("Ready", "");
-        loadingEl.style.display = "none";
-        setTimeout(function () { if (badgeEl) badgeEl.style.display = "none"; }, 15000);
+        log("timeline: engine " + Math.round(performance.now() - startedEngine) + " ms · total " + secs());
+        hideLoader();
       }).catch(function (message) {
         stopTick();
-        setIndeterminate(false);
-        setStage("Failed to load: " + message, "");
+        setBar(0);
+        state("failed to load", message);
       });
     };
     script.onerror = function () {
       stopTick();
-      setStage("loader.js unreachable from " + loaderUrl, "");
+      state("engine script unreachable", loaderUrl);
     };
     document.body.appendChild(script);
   }
 
+  // ---- flow --------------------------------------------------------------
   function startFromCache(hit) {
     var lookupMs = Math.round(performance.now() - t0);
-    setIndeterminate(true);
-    setStage("Cache HIT — " + SIZE_MB + " MB found on this device", "lookup took " + lookupMs + " ms · no download");
-    setBadge("cache: HIT · " + SIZE_MB + " MB stored · nothing downloaded now");
-    log("cache HIT in " + lookupMs + " ms · source=" + hit.source +
-        " · " + (hit.blob.size / (1024 * 1024)).toFixed(1) + " MB from storage · zero network requests");
+    setIndeterminate();
+    state("saved copy found", SIZE_MB + " MB · cache " + lookupMs + " ms");
+    log("cache HIT " + lookupMs + " ms · " + hit.source + " · " + fmtMB(hit.blob.size) + " · zero network requests");
     boot(URL.createObjectURL(hit.blob), true);
   }
 
   function startDownload() {
-    setIndeterminate(false);
-    setBadge("cache: MISS — downloading " + SIZE_MB + " MB (this happens once)", "#e0b050");
-    progressShell.style.display = "";
-    setStage("Downloading game data", "first visit only · saved locally for next time");
-    log("cache MISS — resumable download in " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks");
-
-    var progress = [0, 0];
+    var partBytes = [0, 0];
     var resumed = false;
+    var samples = [];
+
+    setBar(0);
+    state("downloading", "0.0 MB of " + SIZE_MB + " MB");
+
+    function speed() {
+      if (samples.length < 2) return 0;
+      var first = samples[0];
+      var last = samples[samples.length - 1];
+      var dt = (last.t - first.t) / 1000;
+      return dt > 0 ? (last.b - first.b) / dt : 0;
+    }
+
+    var painter = setInterval(function () {
+      var total = partBytes[0] + partBytes[1];
+      var now = performance.now();
+      samples.push({ t: now, b: total });
+      while (samples.length > 2 && now - samples[0].t > 3000) samples.shift();
+
+      var frac = Math.min(1, total / TOTAL_BYTES);
+      setBar(frac);
+
+      var sp = speed();
+      var pct = Math.round(frac * 100);
+      state((resumed ? "resuming" : "downloading") + " · " + pct + "%",
+            fmtMB(total) + " of " + SIZE_MB + " MB" +
+            (sp > 0 ? " · " + (sp / (1024 * 1024)).toFixed(1) + " MB/s · " + (fmtTime((TOTAL_BYTES - total) / sp) || "—") + " left" : ""));
+    }, 250);
+
+    function stopPainter() {
+      if (painter) { clearInterval(painter); painter = null; }
+    }
 
     return Promise.all([0, 1].map(function (part) {
-      return downloadPartResumable(part, function (p, bytes, wasResumed) {
-        progress[p] = bytes;
-        if (wasResumed) resumed = true;
-        setDownloadStatus(progress[0] + progress[1], resumed);
+      return downloadPart(part, function (p, bytes, wasResumed) {
+        partBytes[p] = bytes;
+        if (wasResumed && bytes > 0) resumed = true;
       });
     })).then(function () {
-      setStage("Assembling game data", "verifying " + SIZE_MB + " MB");
+      stopPainter();
+      setBar(1);
+      state("preparing", fmtMB(TOTAL_BYTES) + " · saved for next time");
       return assembleArchive();
     }).then(function (blob) {
       if (blob.size !== TOTAL_BYTES) {
@@ -566,41 +664,42 @@
       boot(URL.createObjectURL(blob), false);
       return persistArchive(blob).then(function (ok) {
         if (ok) {
-          setBadge("cache: STORED · " + SIZE_MB + " MB saved on this device · next load downloads nothing");
-          log("cache STORED · next load will not download");
+          log("cache STORED — next load downloads nothing");
           clearChunks();
         } else {
-          setBadge("cache: STORE FAILED — will re-download", "#e06060");
-          log("cache STORE FAILED — browser refused both IndexedDB and Cache Storage");
+          log("cache STORE FAILED — browser refused IndexedDB");
         }
       });
     }).catch(function (err) {
-      stopTick();
-      setStage("Download failed: " + (err && err.message ? err.message : String(err)), "saved chunks are kept — reload to resume");
-      log("download failed — saved chunks are kept, reload to resume", err);
+      stopPainter();
+      setBar(0);
+      state("download failed", (err && err.message ? err.message : String(err)) + " · reload to resume");
+      log("download failed — chunks kept, reload to resume", err);
     });
   }
 
-  log("build " + DATA_BUILD + " · " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks · IndexedDB primary");
+  // Preload the tiny engine script while the data streams in.
+  try {
+    var pre = document.createElement("link");
+    pre.rel = "preload";
+    pre.as = "script";
+    pre.href = loaderUrl;
+    document.head.appendChild(pre);
+  } catch (e) {}
 
-  setIndeterminate(true);
-  setStage("Checking cache…", "looking for game data already on this device");
-  tick(function () { return "storage lookup · " + secs(); });
+  log("build " + DATA_BUILD + " · " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks · " + CONCURRENCY + " parallel");
+
+  setIndeterminate();
+  state("checking", "saved game data");
 
   readIndexedArchive().then(function (hit) {
-    if (hit) return hit;
-    setStage("Checking cache…", "not in IndexedDB · checking Cache Storage");
-    return readCacheStorageArchive();
+    return hit || readCacheStorageArchive();
   }).then(function (hit) {
-    stopTick();
-    if (hit) {
-      startFromCache(hit);
-    } else {
-      return startDownload();
-    }
+    if (hit) return startFromCache(hit);
+    return startDownload();
   }).catch(function (err) {
-    stopTick();
-    setStage("Startup failed: " + (err && err.message ? err.message : String(err)), "");
+    setBar(0);
+    state("startup failed", err && err.message ? err.message : String(err));
     log("startup failed", err);
   });
 </script>
