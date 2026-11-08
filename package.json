@@ -1,0 +1,9 @@
+{
+  "name": "getting-over-it-ported",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Getting Over It WebGL port - static host + leaderboard API",
+  "dependencies": {
+    "@neondatabase/serverless": "latest"
+  }
+}
