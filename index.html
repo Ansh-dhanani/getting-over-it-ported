@@ -264,12 +264,15 @@
     var script = document.createElement("script");
     script.src = loaderUrl;
     script.onload = function () {
-      statusEl.textContent = "Starting…";
-      progressBar.style.width = "100%";
+      if (!fromCache) progressBar.style.width = "100%";
       createUnityInstance(canvas, config, function (progress) {
         var n = Math.max(0, Math.min(100, Math.round(progress * 100)));
-        progressBar.style.width = n + "%";
-        statusEl.textContent = "Starting… " + n + "%";
+        if (!fromCache) {
+          progressBar.style.width = n + "%";
+          statusEl.textContent = "Starting… " + n + "%";
+        } else {
+          statusEl.textContent = "Starting from cache… (0 MB downloaded)";
+        }
       }).then(function () {
         loadingEl.style.display = "none";
         setTimeout(function () { if (badgeEl) badgeEl.style.display = "none"; }, 8000);
@@ -285,12 +288,14 @@
 
   var SIZE_MB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
   var startedAt = performance.now();
+  var fromCache = false;
 
   function startFromCached(cached) {
     // No download to report: hide the byte bar so it never shows 0 MB.
+    fromCache = true;
     progressShell.style.display = "none";
-    statusEl.textContent = "Loaded from cache — starting…";
-    setBadge("cache: HIT · " + SIZE_MB + " MB · no download");
+    statusEl.textContent = "Loaded from cache — no download · starting…";
+    setBadge("cache: HIT · 0 MB downloaded");
     log("cache HIT in " + Math.round(performance.now() - startedAt) + " ms · " + SIZE_MB + " MB · zero network requests");
     boot(URL.createObjectURL(cached.blob));
     if (!cached.consolidated) {
