@@ -28,7 +28,7 @@
   </style>
   <script defer src="https://stats.anshdhanani.is-a.dev/script.js" data-website-id="90edeac2-132f-4222-bef5-1a7abc400165"></script>
   <script defer src="https://stats.anshdhanani.is-a.dev/recorder.js" data-website-id="90edeac2-132f-4222-bef5-1a7abc400165"></script>
-<script>if ("serviceWorker" in navigator) { window.addEventListener("load", function(){ navigator.serviceWorker.register("sw.js").catch(function(err){ console.warn("sw register failed", err); }); }); }</script>\n</head>
+</head>
 <body>
 <div id="unity-container">
   <div id="unity-fullscreen-container">
@@ -36,18 +36,20 @@
     <div id="unity-loading-container">
       <img id="unity-logo" src="logo.jpg" alt="">
       <div id="unity-progress-shell"><div id="unity-progress-bar"></div></div>
-      <div id="unity-status">Connecting to asset host…</div>
+      <div id="unity-status">Loading…</div>
     </div>
   </div>
   <div id="unity-warning"></div>
 </div>
 <script>
-  var BASE = new URL('./', window.location.href);
+  var BASE = new URL("./", window.location.href);
 
   var canvas = document.querySelector("#unity-canvas");
   var fullscreenContainer = document.querySelector("#unity-fullscreen-container");
+  var progressShell = document.querySelector("#unity-progress-shell");
   var progressBar = document.querySelector("#unity-progress-bar");
   var statusEl = document.querySelector("#unity-status");
+  var loadingEl = document.querySelector("#unity-loading-container");
 
   function fit() {
     var w = window.innerWidth, h = window.innerHeight;
@@ -64,12 +66,33 @@
   var PART_NAMES = ["parts/data.part1", "parts/data.part2"];
   var PART_SIZES = [72622855, 72622855];
   var TOTAL_BYTES = PART_SIZES[0] + PART_SIZES[1];
+  var PART_URLS = PART_NAMES.map(function (n) { return new URL(n, BASE).href; });
+
+  // One single archive entry, so a repeat visit does zero network work.
+  var DATA_CACHE = "goi-data-v1";
+  var DATA_KEY = new URL("__goi_game_data.bin", BASE).href;
 
   var loaderUrl = BASE + "u6_mian_brotli.loader.js";
   var frameworkUrl = BASE + "u6_mian_brotli.framework.js.unityweb";
   var codeUrl = BASE + "u6_mian_brotli.wasm.unityweb";
 
-  function setStatus(bytesLoaded) {
+  function cacheReady() {
+    return (typeof caches !== "undefined") && (typeof Response !== "undefined") && window.isSecureContext;
+  }
+
+  // Ask the browser to keep our archive instead of evicting it under disk pressure.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(function () {});
+  }
+  // The old service worker is no longer used; retire any leftover registration so it
+  // cannot re-download the parts behind our back.
+  if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+    navigator.serviceWorker.getRegistrations().then(function (regs) {
+      regs.forEach(function (r) { r.unregister(); });
+    }).catch(function () {});
+  }
+
+  function setDownloadStatus(bytesLoaded) {
     var pct = Math.min(100, Math.round((bytesLoaded / TOTAL_BYTES) * 100));
     progressBar.style.width = pct + "%";
     var mb = (bytesLoaded / (1024 * 1024)).toFixed(1);
@@ -77,15 +100,15 @@
     statusEl.textContent = "Downloading " + mb + " MB / " + total + " MB (" + pct + "%)";
   }
 
-  function fetchOne(name, size, onChunk) {
-    return fetch(BASE + name, { cache: "force-cache" }).then(function(res) {
-      if (!res.ok) throw new Error("fetch " + name + " HTTP " + res.status);
-      if (!res.body) throw new Error("fetch " + name + ": no stream");
+  function fetchOne(url, size, onChunk) {
+    return fetch(url, { cache: "force-cache" }).then(function (res) {
+      if (!res.ok) throw new Error("fetch " + url + " HTTP " + res.status);
+      if (!res.body) throw new Error("fetch " + url + ": no stream");
       var reader = res.body.getReader();
       var chunks = [];
       var got = 0;
       return (function pump() {
-        return reader.read().then(function(r) {
+        return reader.read().then(function (r) {
           if (r.done) return new Blob(chunks);
           chunks.push(r.value);
           got += r.value.byteLength;
@@ -96,17 +119,79 @@
     });
   }
 
-  function fetchParts() {
+  function fetchPartsFromNetwork() {
     var loaded = [0, 0];
-    statusEl.textContent = "Connecting to asset host…";
-    return Promise.all(PART_NAMES.map(function(name, i) {
-      return fetchOne(name, PART_SIZES[i], function(got) {
+    progressShell.style.display = "";
+    statusEl.textContent = "Connecting…";
+    return Promise.all(PART_NAMES.map(function (name, i) {
+      return fetchOne(PART_URLS[i], PART_SIZES[i], function (got) {
         loaded[i] = got;
-        setStatus(loaded[0] + loaded[1]);
+        setDownloadStatus(loaded[0] + loaded[1]);
       });
-    })).then(function(blobs) {
+    })).then(function (blobs) {
       return new Blob(blobs, { type: "application/octet-stream" });
     });
+  }
+
+  // Look through every cache for either our consolidated archive or the old
+  // split parts (so existing visitors migrate without re-downloading anything).
+  function findCachedData() {
+    if (!cacheReady()) return Promise.resolve(null);
+    return caches.keys().then(function (names) {
+      return Promise.all(names.map(function (name) {
+        return caches.open(name).then(function (cache) {
+          return Promise.all([
+            cache.match(DATA_KEY),
+            cache.match(PART_URLS[0]),
+            cache.match(PART_URLS[1])
+          ]).then(function (hits) {
+            if (hits[0]) {
+              return hits[0].blob().then(function (blob) {
+                return { blob: blob, consolidated: true };
+              });
+            }
+            if (hits[1] && hits[2]) {
+              return Promise.all([hits[1].blob(), hits[2].blob()]).then(function (bs) {
+                return {
+                  blob: new Blob(bs, { type: "application/octet-stream" }),
+                  consolidated: false
+                };
+              });
+            }
+            return null;
+          });
+        }).catch(function () { return null; });
+      })).then(function (results) {
+        for (var i = 0; i < results.length; i++) {
+          if (results[i]) return results[i];
+        }
+        return null;
+      });
+    }).catch(function () { return null; });
+  }
+
+  function storeData(blob) {
+    if (!cacheReady()) return Promise.resolve(false);
+    return caches.open(DATA_CACHE).then(function (cache) {
+      return cache.put(DATA_KEY, new Response(blob, {
+        headers: { "Content-Type": "application/octet-stream" }
+      }));
+    }).then(function () {
+      return true;
+    }).catch(function (err) {
+      console.warn("could not cache game data:", err);
+      return false;
+    });
+  }
+
+  // Only remove the old split-part cache once the single archive is safely stored.
+  function dropLegacyCaches() {
+    if (!cacheReady()) return Promise.resolve();
+    return caches.keys().then(function (names) {
+      return Promise.all(names.map(function (name) {
+        if (name !== DATA_CACHE) return caches.delete(name);
+      }));
+    }).catch(function () {});
   }
 
   function boot(dataUrl) {
@@ -121,42 +206,68 @@
       companyName: "Bennett Foddy",
       productName: "Getting Over It",
       productVersion: "1.7",
-      showBanner: function(msg, type) {
+      showBanner: function (msg) {
         var el = document.querySelector("#unity-warning");
         el.style.display = "block";
         el.textContent = msg;
-        setTimeout(function(){ el.style.display = "none"; }, 6000);
-      },
+        setTimeout(function () { el.style.display = "none"; }, 6000);
+      }
     };
 
     var script = document.createElement("script");
     script.src = loaderUrl;
-    script.onload = function() {
-      var loading = document.querySelector("#unity-loading-container");
-      statusEl.textContent = "Starting Unity…";
+    script.onload = function () {
+      statusEl.textContent = "Starting…";
       progressBar.style.width = "100%";
-      createUnityInstance(canvas, config, function(progress) {
-        // Unity tracks total loading separately; leave the 100% from data
+      createUnityInstance(canvas, config, function (progress) {
         var n = Math.max(0, Math.min(100, Math.round(progress * 100)));
         progressBar.style.width = n + "%";
-        statusEl.textContent = "Starting Unity… " + n + "%";
-      }).then(function() {
-        loading.style.display = "none";
-      }).catch(function(message) {
+        statusEl.textContent = "Starting… " + n + "%";
+      }).then(function () {
+        loadingEl.style.display = "none";
+      }).catch(function (message) {
         statusEl.textContent = "Failed to load: " + message;
       });
     };
-    script.onerror = function() {
-      statusEl.textContent = "loader.js unreachable from " + BASE + "loader.js";
+    script.onerror = function () {
+      statusEl.textContent = "loader.js unreachable from " + loaderUrl;
     };
     document.body.appendChild(script);
   }
 
-  fetchParts().then(function(blob) {
-    var url = URL.createObjectURL(blob);
-    boot(url);
-  }).catch(function(err) {
-    statusEl.textContent = "Download failed: " + (err && err.message ? err.message : String(err));
+  function startFromCached(cached) {
+    // No download to report: hide the byte bar so it never shows 0 MB.
+    progressShell.style.display = "none";
+    statusEl.textContent = "Starting…";
+    boot(URL.createObjectURL(cached.blob));
+    if (!cached.consolidated) {
+      storeData(cached.blob).then(function (ok) {
+        if (ok) dropLegacyCaches();
+      });
+    }
+  }
+
+  function startFromNetwork() {
+    return fetchPartsFromNetwork().then(function (blob) {
+      var url = URL.createObjectURL(blob);
+      boot(url);
+      // Persist after boot starts so the player sees the game as soon as possible.
+      storeData(blob).then(function (ok) {
+        if (ok) dropLegacyCaches();
+      });
+    }).catch(function (err) {
+      statusEl.textContent = "Download failed: " + (err && err.message ? err.message : String(err));
+    });
+  }
+
+  findCachedData().then(function (cached) {
+    if (cached) {
+      startFromCached(cached);
+    } else {
+      return startFromNetwork();
+    }
+  }).catch(function (err) {
+    statusEl.textContent = "Startup failed: " + (err && err.message ? err.message : String(err));
   });
 </script>
 </body>
