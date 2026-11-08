@@ -23,7 +23,17 @@
     #unity-progress-bar {
       height: 100%; width: 0%; background: #888; transition: width 0.15s linear;
     }
+    #unity-progress-shell.indeterminate #unity-progress-bar {
+      width: 34% !important;
+      animation: goi-slide 1.15s ease-in-out infinite;
+    }
+    @keyframes goi-slide {
+      0%   { transform: translateX(-105%); }
+      100% { transform: translateX(300%); }
+    }
     #unity-status { font: 12px/1.3 system-ui, sans-serif; color: #888; letter-spacing: 0.08em; min-width: 340px; text-align: center; }
+    #unity-substatus { font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: #5a5a5a;
+      min-width: 340px; min-height: 16px; text-align: center; }
     #unity-cache-badge { position: fixed; left: 10px; bottom: 10px; z-index: 20;
       font: 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; color: #6c6;
       background: rgba(0,0,0,.65); border: 1px solid #222; padding: 4px 8px; border-radius: 3px; }
@@ -39,7 +49,8 @@
     <div id="unity-loading-container">
       <img id="unity-logo" src="logo.jpg" alt="">
       <div id="unity-progress-shell"><div id="unity-progress-bar"></div></div>
-      <div id="unity-status">Loading…</div>
+      <div id="unity-status">Checking cache…</div>
+      <div id="unity-substatus"></div>
     </div>
   </div>
   <div id="unity-warning"></div>
@@ -67,6 +78,37 @@
     if (!badgeEl) return;
     badgeEl.textContent = text;
     badgeEl.style.color = color || "#6c6";
+  }
+
+  // ---- staged loading UI -------------------------------------------------
+  var subEl = document.querySelector("#unity-substatus");
+  var t0 = performance.now();
+  var tickId = null;
+
+  function secs() {
+    return ((performance.now() - t0) / 1000).toFixed(1) + "s";
+  }
+
+  function setStage(main, sub) {
+    statusEl.textContent = main;
+    if (subEl && sub !== undefined) subEl.textContent = sub;
+  }
+
+  function setIndeterminate(on) {
+    if (!progressShell) return;
+    progressShell.classList.toggle("indeterminate", !!on);
+    if (on) progressBar.style.width = "";
+  }
+
+  // Live-updating sub-line so a long local step never looks frozen.
+  function tick(fn) {
+    stopTick();
+    if (subEl) subEl.textContent = fn();
+    tickId = setInterval(function () { if (subEl) subEl.textContent = fn(); }, 200);
+  }
+
+  function stopTick() {
+    if (tickId) { clearInterval(tickId); tickId = null; }
   }
 
   function fit() {
@@ -426,7 +468,7 @@
   }
 
   // ---- boot ----
-  function boot(dataUrl) {
+  function boot(dataUrl, cached) {
     var config = {
       devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
       arguments: [],
@@ -449,45 +491,60 @@
     var script = document.createElement("script");
     script.src = loaderUrl;
     script.onload = function () {
-      if (!fromCache) progressBar.style.width = "100%";
+      if (cached) {
+        setIndeterminate(true);
+        setStage("Game data ready — no download", "");
+        tick(function () {
+          return SIZE_MB + " MB already on this device · unpacking locally · " + secs();
+        });
+      } else {
+        setIndeterminate(false);
+        progressBar.style.width = "100%";
+        setStage("Starting…", "engine " + secs());
+      }
+
       createUnityInstance(canvas, config, function (progress) {
         var n = Math.max(0, Math.min(100, Math.round(progress * 100)));
-        if (fromCache) {
-          statusEl.textContent = "Game data already on this device (" + SIZE_MB + " MB) — nothing to download";
+        if (cached) {
+          statusEl.textContent = "Unpacking game data — no download · " + n + "%";
         } else {
           progressBar.style.width = n + "%";
           statusEl.textContent = "Starting… " + n + "%";
         }
       }).then(function () {
+        stopTick();
+        log("timeline: game ready in " + secs());
+        setStage("Ready", "");
         loadingEl.style.display = "none";
         setTimeout(function () { if (badgeEl) badgeEl.style.display = "none"; }, 15000);
       }).catch(function (message) {
-        statusEl.textContent = "Failed to load: " + message;
+        stopTick();
+        setIndeterminate(false);
+        setStage("Failed to load: " + message, "");
       });
     };
     script.onerror = function () {
-      statusEl.textContent = "loader.js unreachable from " + loaderUrl;
+      stopTick();
+      setStage("loader.js unreachable from " + loaderUrl, "");
     };
     document.body.appendChild(script);
   }
 
-  var fromCache = false;
-  var startedAt = performance.now();
-
   function startFromCache(hit) {
-    fromCache = true;
-    progressShell.style.display = "none";
-    statusEl.textContent = "Game data already on this device (" + SIZE_MB + " MB) — no download · starting…";
+    var lookupMs = Math.round(performance.now() - t0);
+    setIndeterminate(true);
+    setStage("Cache HIT — " + SIZE_MB + " MB found on this device", "lookup took " + lookupMs + " ms · no download");
     setBadge("cache: HIT · " + SIZE_MB + " MB stored · nothing downloaded now");
-    log("cache HIT in " + Math.round(performance.now() - startedAt) + " ms · source=" + hit.source +
-        " · " + (hit.blob.size / (1024 * 1024)).toFixed(1) + " MB served from storage · zero network requests");
-    boot(URL.createObjectURL(hit.blob));
+    log("cache HIT in " + lookupMs + " ms · source=" + hit.source +
+        " · " + (hit.blob.size / (1024 * 1024)).toFixed(1) + " MB from storage · zero network requests");
+    boot(URL.createObjectURL(hit.blob), true);
   }
 
   function startDownload() {
+    setIndeterminate(false);
     setBadge("cache: MISS — downloading " + SIZE_MB + " MB (this happens once)", "#e0b050");
     progressShell.style.display = "";
-    statusEl.textContent = "Checking for a partial download…";
+    setStage("Downloading game data", "first visit only · saved locally for next time");
     log("cache MISS — resumable download in " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks");
 
     var progress = [0, 0];
@@ -500,13 +557,13 @@
         setDownloadStatus(progress[0] + progress[1], resumed);
       });
     })).then(function () {
-      statusEl.textContent = "Assembling game data…";
+      setStage("Assembling game data", "verifying " + SIZE_MB + " MB");
       return assembleArchive();
     }).then(function (blob) {
       if (blob.size !== TOTAL_BYTES) {
         throw new Error("assembled " + blob.size + " bytes, expected " + TOTAL_BYTES);
       }
-      boot(URL.createObjectURL(blob));
+      boot(URL.createObjectURL(blob), false);
       return persistArchive(blob).then(function (ok) {
         if (ok) {
           setBadge("cache: STORED · " + SIZE_MB + " MB saved on this device · next load downloads nothing");
@@ -518,24 +575,32 @@
         }
       });
     }).catch(function (err) {
-      statusEl.textContent = "Download failed: " + (err && err.message ? err.message : String(err));
+      stopTick();
+      setStage("Download failed: " + (err && err.message ? err.message : String(err)), "saved chunks are kept — reload to resume");
       log("download failed — saved chunks are kept, reload to resume", err);
     });
   }
 
   log("build " + DATA_BUILD + " · " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks · IndexedDB primary");
 
+  setIndeterminate(true);
+  setStage("Checking cache…", "looking for game data already on this device");
+  tick(function () { return "storage lookup · " + secs(); });
+
   readIndexedArchive().then(function (hit) {
     if (hit) return hit;
+    setStage("Checking cache…", "not in IndexedDB · checking Cache Storage");
     return readCacheStorageArchive();
   }).then(function (hit) {
+    stopTick();
     if (hit) {
       startFromCache(hit);
     } else {
       return startDownload();
     }
   }).catch(function (err) {
-    statusEl.textContent = "Startup failed: " + (err && err.message ? err.message : String(err));
+    stopTick();
+    setStage("Startup failed: " + (err && err.message ? err.message : String(err)), "");
     log("startup failed", err);
   });
 </script>
