@@ -453,14 +453,14 @@
       createUnityInstance(canvas, config, function (progress) {
         var n = Math.max(0, Math.min(100, Math.round(progress * 100)));
         if (fromCache) {
-          statusEl.textContent = "Starting from cache… (0 MB downloaded)";
+          statusEl.textContent = "Game data already on this device (" + SIZE_MB + " MB) — nothing to download";
         } else {
           progressBar.style.width = n + "%";
           statusEl.textContent = "Starting… " + n + "%";
         }
       }).then(function () {
         loadingEl.style.display = "none";
-        setTimeout(function () { if (badgeEl) badgeEl.style.display = "none"; }, 8000);
+        setTimeout(function () { if (badgeEl) badgeEl.style.display = "none"; }, 15000);
       }).catch(function (message) {
         statusEl.textContent = "Failed to load: " + message;
       });
@@ -477,14 +477,15 @@
   function startFromCache(hit) {
     fromCache = true;
     progressShell.style.display = "none";
-    statusEl.textContent = "Loaded from cache — no download · starting…";
-    setBadge("cache: HIT · 0 MB downloaded");
-    log("cache HIT in " + Math.round(performance.now() - startedAt) + " ms · source=" + hit.source + " · zero network requests");
+    statusEl.textContent = "Game data already on this device (" + SIZE_MB + " MB) — no download · starting…";
+    setBadge("cache: HIT · " + SIZE_MB + " MB stored · nothing downloaded now");
+    log("cache HIT in " + Math.round(performance.now() - startedAt) + " ms · source=" + hit.source +
+        " · " + (hit.blob.size / (1024 * 1024)).toFixed(1) + " MB served from storage · zero network requests");
     boot(URL.createObjectURL(hit.blob));
   }
 
   function startDownload() {
-    setBadge("cache: MISS — downloading " + SIZE_MB + " MB", "#e0b050");
+    setBadge("cache: MISS — downloading " + SIZE_MB + " MB (this happens once)", "#e0b050");
     progressShell.style.display = "";
     statusEl.textContent = "Checking for a partial download…";
     log("cache MISS — resumable download in " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks");
@@ -508,7 +509,7 @@
       boot(URL.createObjectURL(blob));
       return persistArchive(blob).then(function (ok) {
         if (ok) {
-          setBadge("cache: STORED · " + SIZE_MB + " MB · next load is instant");
+          setBadge("cache: STORED · " + SIZE_MB + " MB saved on this device · next load downloads nothing");
           log("cache STORED · next load will not download");
           clearChunks();
         } else {
