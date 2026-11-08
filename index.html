@@ -69,8 +69,11 @@
   var PART_URLS = PART_NAMES.map(function (n) { return new URL(n, BASE).href; });
 
   // One single archive entry, so a repeat visit does zero network work.
+  // Bump DATA_BUILD whenever the parts change: a cached archive from a
+  // different build is ignored (and pruned) instead of booting stale data.
   var DATA_CACHE = "goi-data-v1";
-  var DATA_KEY = new URL("__goi_game_data.bin", BASE).href;
+  var DATA_BUILD = "brotli-2026-11-08";
+  var DATA_KEY = new URL("__goi_game_data." + DATA_BUILD + ".bin", BASE).href;
 
   var loaderUrl = BASE + "u6_mian_brotli.loader.js";
   var frameworkUrl = BASE + "u6_mian_brotli.framework.js.unityweb";
@@ -145,19 +148,33 @@
             cache.match(PART_URLS[0]),
             cache.match(PART_URLS[1])
           ]).then(function (hits) {
-            if (hits[0]) {
-              return hits[0].blob().then(function (blob) {
-                return { blob: blob, consolidated: true };
+            var single = hits[0], a = hits[1], b = hits[2];
+
+            // 1) Our consolidated archive. Accept it only when the byte count
+            //    matches what this build expects; then boot with no download.
+            if (single) {
+              return single.blob().then(function (blob) {
+                if (blob.size === TOTAL_BYTES) {
+                  return { blob: blob, consolidated: true };
+                }
+                return caches.open(name).then(function (c) {
+                  return c.delete(DATA_KEY);
+                }).then(function () { return null; });
               });
             }
-            if (hits[1] && hits[2]) {
-              return Promise.all([hits[1].blob(), hits[2].blob()]).then(function (bs) {
+
+            // 2) Legacy split parts from the retired service worker: migrate
+            //    them into the single archive without re-downloading.
+            if (a && b) {
+              return Promise.all([a.blob(), b.blob()]).then(function (bs) {
+                if (bs[0].size + bs[1].size !== TOTAL_BYTES) return null;
                 return {
                   blob: new Blob(bs, { type: "application/octet-stream" }),
                   consolidated: false
                 };
               });
             }
+
             return null;
           });
         }).catch(function () { return null; });
@@ -182,6 +199,18 @@
       console.warn("could not cache game data:", err);
       return false;
     });
+  }
+
+  // Drop archives belonging to other builds; keep only this build's entry.
+  function pruneDataCache() {
+    if (!cacheReady()) return Promise.resolve();
+    return caches.open(DATA_CACHE).then(function (cache) {
+      return cache.keys().then(function (reqs) {
+        return Promise.all(reqs.map(function (req) {
+          if (req.url !== DATA_KEY) return cache.delete(req);
+        }));
+      });
+    }).catch(function () {});
   }
 
   // Only remove the old split-part cache once the single archive is safely stored.
@@ -242,7 +271,7 @@
     boot(URL.createObjectURL(cached.blob));
     if (!cached.consolidated) {
       storeData(cached.blob).then(function (ok) {
-        if (ok) dropLegacyCaches();
+        if (ok) { dropLegacyCaches(); pruneDataCache(); }
       });
     }
   }
@@ -253,7 +282,7 @@
       boot(url);
       // Persist after boot starts so the player sees the game as soon as possible.
       storeData(blob).then(function (ok) {
-        if (ok) dropLegacyCaches();
+        if (ok) { dropLegacyCaches(); pruneDataCache(); }
       });
     }).catch(function (err) {
       statusEl.textContent = "Download failed: " + (err && err.message ? err.message : String(err));
