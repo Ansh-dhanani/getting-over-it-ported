@@ -5,7 +5,8 @@
 //
 // Storage: a single Redis sorted set `goi:fastest` (score = ms, member =
 // JSON) plus rate-limit keys, via the Upstash REST API. No dependencies -
-// raw fetch against the REST endpoint.
+// raw fetch against the REST endpoint. Entries are kept forever (no cap);
+// each entry is ~200 bytes, so even 100,000 runs fit easily.
 //
 // Env vars (set in Vercel - Project - Settings - Environment Variables):
 //   UPSTASH_REDIS_REST_URL    e.g. https://kind-cat-12345.upstash.io
@@ -20,7 +21,6 @@
 // unavoidable without server-side replay, which is out of scope.
 
 const KEY = "goi:fastest";
-const MAX_ENTRIES = 500;          // only the best MAX_ENTRIES are kept
 const TOP = 50;                   // GET returns at most TOP
 const MIN_MS = 60 * 1000;         // 1 minute - no real run is faster
 const MAX_MS = 7 * 24 * 60 * 60 * 1000;  // 1 week cap
@@ -74,15 +74,6 @@ const mockStore = {
         case "zcard":
           out.push(mock.z.length);
           break;
-        case "zremrangebyrank": {
-          const [key, start, stop] = args;
-          if (key !== KEY) throw new Error("mock: unknown key " + key);
-          if (stop !== "-1") throw new Error("mock: only -1 stop supported");
-          const removed = Math.max(0, mock.z.length - Number(start));
-          mock.z.splice(Number(start));
-          out.push(removed);
-          break;
-        }
         case "zrank": {
           const [key, member] = args;
           if (key !== KEY) throw new Error("mock: unknown key " + key);
@@ -197,11 +188,10 @@ module.exports = async function handler(req, res) {
       const member = JSON.stringify(entry);
       const results = await redis([
         ["ZADD", KEY, String(ms), member],
-        ["ZREMRANGEBYRANK", KEY, String(MAX_ENTRIES), "-1"],
       ]);
       const rankRes = await redis([["ZRANK", KEY, member]]);
       const rank = rankRes[0] == null ? null : Number(rankRes[0]);
-      return send(res, 200, { ok: true, rank, total: MAX_ENTRIES });
+      return send(res, 200, { ok: true, rank });
     }
 
     res.setHeader("Allow", "GET, POST");
