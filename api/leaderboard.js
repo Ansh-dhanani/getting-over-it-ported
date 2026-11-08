@@ -16,7 +16,6 @@
 // (fixed 60s window). A determined cheater can forge a request - unavoidable
 // without server-side replay, which is out of scope.
 
-const TOP = 50;
 const MIN_MS = 60 * 1000;                       // 1 minute - no real run is faster
 const MAX_MS = 7 * 24 * 60 * 60 * 1000;         // one week
 const MAX_WRITES_PER_MINUTE = 5;                // per IP
@@ -24,7 +23,8 @@ const MAX_NAME_LEN = 18;
 
 const CONN = process.env.NEON_CONNECTION_STRING ||
              process.env.NEON_DATABASE_URL ||
-             process.env.DATABASE_URL || "";
+             process.env.DATABASE_URL ||
+             process.env.POSTGRES_URL || "";
 
 let sql = null;
 function getSql() {
@@ -100,17 +100,23 @@ module.exports = async function handler(req, res) {
     const s = getSql();
 
     if (req.method === "GET") {
+      const perPage = Math.min(100, Math.max(1, parseInt(req.query && req.query.per_page, 10) || 25));
+      const page = Math.max(1, parseInt(req.query && req.query.page, 10) || 1);
+      const totalRows = await s`SELECT COUNT(*)::int AS c FROM goi_leaderboard`;
+      const total = Number(totalRows[0].c);
+      const offset = (page - 1) * perPage;
       const rows = await s`
         SELECT name, ms, EXTRACT(EPOCH FROM created_at) * 1000 AS at_ms
         FROM goi_leaderboard
         ORDER BY ms ASC, id ASC
-        LIMIT ${TOP}`;
+        LIMIT ${perPage} OFFSET ${offset}`;
       const top = rows.map((r) => ({
         name: cleanName(r.name),
         ms: Number(r.ms),
         at: new Date(Number(r.at_ms)).toISOString(),
       }));
-      return send(res, 200, { ok: true, top, count: top.length });
+      const pages = Math.max(1, Math.ceil(total / perPage));
+      return send(res, 200, { ok: true, top, count: rows.length, page, per_page: perPage, total, pages });
     }
 
     if (req.method === "POST") {
