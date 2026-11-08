@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -89,6 +89,81 @@
       padding: 8px 12px; border-radius: 4px; display: none; z-index: 20;
     }
 
+    /* ---------- leaderboard ---------- */
+    .lb-open {
+      position: fixed; top: 14px; right: 14px; z-index: 30;
+      font: 500 10px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .34em; text-indent: .34em; text-transform: uppercase;
+      color: var(--ink-2); background: rgba(10,10,10,.55);
+      border: 1px solid #222; border-radius: 3px;
+      padding: 9px 13px; cursor: pointer; backdrop-filter: blur(6px);
+      opacity: .6; transition: opacity .2s ease, color .2s ease;
+    }
+    .lb-open:hover { opacity: 1; color: var(--ink); }
+
+    .lb-backdrop { position: fixed; inset: 0; z-index: 39; background: rgba(0,0,0,.35); display: none; }
+    .lb-backdrop.in { display: block; }
+
+    .lb-panel {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 40;
+      width: min(360px, 94vw); background: #0b0b0b;
+      border-left: 1px solid #1e1e1e; display: flex; flex-direction: column;
+      transform: translateX(101%); transition: transform .32s cubic-bezier(.22,.61,.36,1);
+      visibility: hidden;
+    }
+    .lb-panel.in { transform: none; visibility: visible; }
+
+    .lb-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 12px; }
+    .lb-title {
+      font: 500 10px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: .42em; text-indent: .42em; text-transform: uppercase; color: var(--ink-3);
+    }
+    .lb-close { background: none; border: none; color: var(--ink-3); font-size: 22px; line-height: 1; padding: 2px 8px; cursor: pointer; }
+    .lb-close:hover { color: var(--ink); }
+
+    .lb-save { display: none; padding: 0 20px; }
+    .lb-save.on { display: block; }
+    .lb-save-label { font: 400 10px/1.5 system-ui, sans-serif; letter-spacing: .08em; color: var(--ink-2); margin-bottom: 7px; }
+    .lb-row-input { display: flex; gap: 8px; }
+    .lb-input {
+      flex: 1; background: #141414; border: 1px solid #262626; color: var(--ink);
+      font: 400 13px system-ui, sans-serif; padding: 9px 10px; border-radius: 3px; outline: none;
+    }
+    .lb-input:focus { border-color: #3d3d3d; }
+    .lb-btn-primary {
+      background: #e8e8e8; color: #0a0a0a; border: none; border-radius: 3px;
+      font: 600 11px system-ui, sans-serif; letter-spacing: .14em; text-indent: .14em; text-transform: uppercase;
+      padding: 0 16px; cursor: pointer;
+    }
+    .lb-btn-primary:hover { background: #fff; }
+
+    .lb-status { min-height: 16px; padding: 6px 20px 0; font: 400 10px/1.5 system-ui, sans-serif; letter-spacing: .06em; color: var(--ink-3); }
+    .lb-status.good { color: #7ddba4; }
+    .lb-status.bad { color: #ff9c9c; }
+
+    .lb-list { flex: 1; overflow-y: auto; padding: 12px 0 8px; border-top: 1px solid #161616; }
+    .lb-entry { display: flex; align-items: baseline; gap: 14px; padding: 9px 20px; font: 400 12px/1.3 system-ui, sans-serif; }
+    .lb-entry:nth-child(odd) { background: #101010; }
+    .lb-rank { width: 34px; flex: none; text-align: right; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+    .lb-name { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lb-time { color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .lb-entry.top .lb-rank { color: var(--ink); }
+    .lb-empty, .lb-loading { padding: 26px 20px; color: var(--ink-3); font: 400 11px/1.7 system-ui, sans-serif; letter-spacing: .04em; }
+
+    .lb-foot { padding: 12px 20px 18px; border-top: 1px solid #161616;
+      font: 400 9px/1.7 system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+    .lb-foot-change { background: none; border: none; color: var(--ink-2); cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 0; text-decoration: underline; }
+    .lb-foot-change:hover { color: var(--ink); }
+
+    .lb-toast {
+      position: fixed; left: 50%; bottom: 26px; z-index: 45;
+      transform: translate(-50%, 8px); opacity: 0; pointer-events: none;
+      background: #111; border: 1px solid #2a2a2a; color: var(--ink);
+      font: 400 11px/1.4 system-ui, sans-serif; padding: 9px 18px; border-radius: 999px;
+      transition: opacity .25s ease, transform .25s ease;
+    }
+    .lb-toast.in { opacity: 1; transform: translate(-50%, 0); }
+
     @media (max-width: 520px) {
       .loader-mark { width: 68px; height: 68px; margin-bottom: 22px; }
       .loader-title { margin-bottom: 26px; }
@@ -119,6 +194,25 @@
   </div>
   <div id="unity-warning"></div>
 </div>
+<button id="lb-open" class="lb-open" type="button">fastest clears</button>
+<div id="lb-backdrop" class="lb-backdrop"></div>
+<aside id="lb-panel" class="lb-panel" role="dialog" aria-modal="true" aria-label="Fastest clears leaderboard">
+  <div class="lb-head">
+    <div class="lb-title">fastest clears</div>
+    <button id="lb-close" class="lb-close" type="button" aria-label="Close">&times;</button>
+  </div>
+  <div id="lb-save" class="lb-save">
+    <div class="lb-save-label">Run complete - add yourself to the board</div>
+    <form id="lb-save-form" class="lb-row-input">
+      <input id="lb-name" class="lb-input" type="text" maxlength="18" autocomplete="off" spellcheck="false" placeholder="nickname">
+      <button id="lb-submit" class="lb-btn-primary" type="submit">Save</button>
+    </form>
+  </div>
+  <div id="lb-status" class="lb-status"></div>
+  <div id="lb-list" class="lb-list"><div class="lb-loading">loading&hellip;</div></div>
+  <div class="lb-foot">full clear &middot; start to finish<br>you are <button id="lb-change" class="lb-foot-change" type="button">anonymous</button> - tap to change</div>
+</aside>
+<div id="lb-toast" class="lb-toast"></div>
 <script>
   var BASE = new URL("./", window.location.href);
 
@@ -150,12 +244,12 @@
   window.addEventListener("orientationchange", fit);
 
   // ---- constants ---------------------------------------------------------
-  var PART_NAMES = ["parts/data.part1", "parts/data.part2"];
-  var PART_SIZES = [72622855, 72622855];
+  var PART_NAMES = ["parts/fwbr.part1", "parts/fwbr.part2"];
+  var PART_SIZES = [72623616, 72623616];
   var TOTAL_BYTES = PART_SIZES[0] + PART_SIZES[1];
   var SIZE_MB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
 
-  var DATA_BUILD = "brotli-2026-11-08";  // bump when game files change
+  var DATA_BUILD = "fw-2026-11-08";  // bump when game files change
   var IDB_NAME = "goi-archive";
   var IDB_STORE = "files";
   var IDB_DATA_KEY = "data:" + DATA_BUILD;
@@ -168,9 +262,160 @@
     return new URL(n + "?v=" + encodeURIComponent(DATA_BUILD), BASE).href;
   });
 
-  var loaderUrl = BASE + "u6_mian_brotli.loader.js";
-  var frameworkUrl = BASE + "u6_mian_brotli.framework.js.unityweb";
-  var codeUrl = BASE + "u6_mian_brotli.wasm.unityweb";
+  var loaderUrl = BASE + "u6_mian_fullwidth_br.loader.js";
+  var frameworkUrl = BASE + "u6_mian_fullwidth_br.framework.js.unityweb";
+  var codeUrl = BASE + "u6_mian_fullwidth_br.wasm.unityweb";
+
+  // ---- leaderboard (fastest full clear) --------------------------------
+  var LB_API = BASE + "api/leaderboard";
+  var LB_NAME_KEY = "goi-lb-name";
+
+  var lbOpenBtn = document.getElementById("lb-open");
+  var lbPanel = document.getElementById("lb-panel");
+  var lbBackdrop = document.getElementById("lb-backdrop");
+  var lbCloseBtn = document.getElementById("lb-close");
+  var lbList = document.getElementById("lb-list");
+  var lbStatus = document.getElementById("lb-status");
+  var lbSaveRow = document.getElementById("lb-save");
+  var lbSaveForm = document.getElementById("lb-save-form");
+  var lbNameInput = document.getElementById("lb-name");
+  var lbChangeBtn = document.getElementById("lb-change");
+  var lbToastEl = document.getElementById("lb-toast");
+
+  var lbPendingMs = null;
+
+  function lbPad(n, len) { n = String(n); while (n.length < len) n = "0" + n; return n; }
+  function lbFmtMs(ms) {
+    var total = ms / 1000, s = Math.floor(total), rem = Math.floor((total - s) * 1000);
+    var m = Math.floor(s / 60), r = s % 60;
+    if (m >= 60) { var h = Math.floor(m / 60); m = m % 60; return h + ":" + lbPad(m, 2) + ":" + lbPad(r, 2) + "." + lbPad(rem, 3); }
+    return m + ":" + lbPad(r, 2) + "." + lbPad(rem, 3);
+  }
+  function lbEsc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function lbStoredName() {
+    try { return localStorage.getItem(LB_NAME_KEY) || ""; } catch (e) { return ""; }
+  }
+  function lbStoreName(name) {
+    try { localStorage.setItem(LB_NAME_KEY, name); } catch (e) {}
+  }
+  function lbSetStatus(msg, cls) {
+    lbStatus.textContent = msg || "";
+    lbStatus.className = "lb-status" + (cls ? " " + cls : "");
+  }
+  function lbToast(msg) {
+    lbToastEl.textContent = msg;
+    lbToastEl.classList.add("in");
+    setTimeout(function () { lbToastEl.classList.remove("in"); }, 3400);
+  }
+  function lbUpdateFooter() {
+    var n = lbStoredName();
+    lbChangeBtn.textContent = n ? n : "anonymous";
+  }
+  function lbRender(top) {
+    if (!top || !top.length) {
+      lbList.innerHTML = '<div class="lb-empty">No clears yet.<br>Finish the climb and your name lands here first.</div>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < top.length; i++) {
+      var e = top[i];
+      html += '<div class="lb-entry' + (i < 3 ? " top" : "") + '"><span class="lb-rank">' + (i + 1) +
+              '</span><span class="lb-name">' + lbEsc(e.name) +
+              '</span><span class="lb-time">' + lbFmtMs(e.ms) + "</span></div>";
+    }
+    lbList.innerHTML = html;
+  }
+  function lbRefresh() {
+    lbList.innerHTML = '<div class="lb-loading">loading&hellip;</div>';
+    fetch(LB_API, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d || !d.ok) throw new Error((d && d.error) || "leaderboard unavailable");
+      lbRender(d.top);
+    }).catch(function (err) {
+      lbList.innerHTML = '<div class="lb-empty">Leaderboard unavailable.<br>' + lbEsc(err && err.message ? err.message : "try again in a moment") + "</div>";
+    });
+  }
+  function lbOpen(saveMode) {
+    lbPanel.classList.add("in");
+    lbBackdrop.classList.add("in");
+    lbSetStatus("", null);
+    lbUpdateFooter();
+    if (saveMode) {
+      lbSaveRow.classList.add("on");
+      lbNameInput.value = lbStoredName();
+      setTimeout(function () { lbNameInput.focus(); }, 120);
+    } else {
+      lbSaveRow.classList.remove("on");
+    }
+    lbRefresh();
+  }
+  function lbClose() {
+    lbPanel.classList.remove("in");
+    lbBackdrop.classList.remove("in");
+    lbSetStatus("", null);
+  }
+  function lbPost(name, ms) {
+    lbSetStatus("saving\u2026", null);
+    fetch(LB_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, ms: ms })
+    }).then(function (r) { return r.json().then(function (d) { return { status: r.status, body: d }; }); })
+      .then(function (res) {
+        var d = res.body;
+        if (!d || !d.ok) throw new Error((d && d.error) || ("HTTP " + res.status));
+        lbStoreName(name);
+        lbUpdateFooter();
+        lbPendingMs = null;
+        if (d.rank !== null && d.rank !== undefined) {
+          lbSetStatus("saved - you are #" + (d.rank + 1), "good");
+          lbToast("time saved \u00b7 #" + (d.rank + 1));
+        } else {
+          lbSetStatus("saved (outside the top list)", "good");
+          lbToast("time saved");
+        }
+        lbSaveRow.classList.remove("on");
+        lbRefresh();
+      })
+      .catch(function (err) {
+        var msg = err && err.message ? err.message : "could not save time";
+        lbSetStatus(msg, "bad");
+        lbToast("could not save time");
+      });
+  }
+
+  lbOpenBtn.addEventListener("click", function () { lbOpen(false); });
+  lbCloseBtn.addEventListener("click", lbClose);
+  lbBackdrop.addEventListener("click", lbClose);
+  lbChangeBtn.addEventListener("click", function () { lbOpen(true); });
+  lbSaveForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var name = (lbNameInput.value || "").replace(/\s+/g, " ").trim().slice(0, 18) || "Anonymous";
+    if (lbPendingMs) { lbPost(name, lbPendingMs); }
+    else { lbStoreName(name); lbUpdateFooter(); lbSetStatus("name updated", "good"); lbToast("name updated"); lbSaveRow.classList.remove("on"); }
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && lbPanel.classList.contains("in")) lbClose();
+  });
+
+  // The Unity build calls this at the moment a run is completed.
+  window.GoiLeaderboard = {
+    submitTime: function (ms) {
+      var t = Math.round(Number(ms)) || 0;
+      if (t < 60000) { log("leaderboard: ignoring implausible time", t); return; }
+      try { if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock(); } catch (e) {}
+      lbPendingMs = t;
+      var stored = lbStoredName();
+      if (stored) {
+        lbPost(stored, t);
+      } else {
+        lbOpen(true);
+      }
+    },
+    open: function () { lbOpen(false); },
+    close: lbClose
+  };
 
   // ---- loading UI --------------------------------------------------------
   var t0 = performance.now();

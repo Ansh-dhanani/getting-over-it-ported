@@ -1,11 +1,11 @@
 {
   "headers": [
     { "source": "/index.html", "headers": [ { "key": "Cache-Control", "value": "no-cache" } ] },
-    { "source": "/parts/data.part1", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
-    { "source": "/parts/data.part2", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
-    { "source": "/u6_mian_brotli.wasm.unityweb", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
-    { "source": "/u6_mian_brotli.framework.js.unityweb", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
-    { "source": "/u6_mian_brotli.loader.js", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
+    { "source": "/parts/fwbr.part1", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
+    { "source": "/parts/fwbr.part2", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
+    { "source": "/u6_mian_fullwidth_br.wasm.unityweb", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
+    { "source": "/u6_mian_fullwidth_br.framework.js.unityweb", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
+    { "source": "/u6_mian_fullwidth_br.loader.js", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
     { "source": "/logo.jpg", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] },
     { "source": "/favicon.ico", "headers": [ { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" } ] }
   ]
