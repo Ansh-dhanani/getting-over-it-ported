@@ -84,18 +84,112 @@
   var PART_NAMES = ["parts/data.part1", "parts/data.part2"];
   var PART_SIZES = [72622855, 72622855];
   var TOTAL_BYTES = PART_SIZES[0] + PART_SIZES[1];
-  var PART_URLS = PART_NAMES.map(function (n) { return new URL(n, BASE).href; });
+  var SIZE_MB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
 
-  // One single archive entry, so a repeat visit does zero network work.
-  // Bump DATA_BUILD whenever the parts change: a cached archive from a
-  // different build is ignored (and pruned) instead of booting stale data.
-  var DATA_CACHE = "goi-data-v1";
+  // Bump DATA_BUILD whenever the game files change. It versions both the
+  // stored archive and the part URLs, so a new build can never boot stale data.
   var DATA_BUILD = "brotli-2026-11-08";
+  var DATA_CACHE = "goi-data-v1";
   var DATA_KEY = new URL("__goi_game_data." + DATA_BUILD + ".bin", BASE).href;
+
+  var PART_URLS = PART_NAMES.map(function (n) { return new URL(n, BASE).href; });
+  var PART_FETCH_URLS = PART_NAMES.map(function (n) {
+    return new URL(n + "?v=" + encodeURIComponent(DATA_BUILD), BASE).href;
+  });
 
   var loaderUrl = BASE + "u6_mian_brotli.loader.js";
   var frameworkUrl = BASE + "u6_mian_brotli.framework.js.unityweb";
   var codeUrl = BASE + "u6_mian_brotli.wasm.unityweb";
+
+  // ---- IndexedDB, primary store (far more reliable than Cache Storage) ----
+  var IDB_NAME = "goi-archive";
+  var IDB_STORE = "files";
+  var IDB_DATA_KEY = "data:" + DATA_BUILD;
+  var IDB_CHUNK_NS = "chunk:" + DATA_BUILD + ":";
+  var CHUNK_SIZE = 4 * 1024 * 1024; // 4 MiB per resumable chunk
+
+  var idbPromise = null;
+  var idbOk = true;
+  var memChunks = [[], []];
+
+  function idbOpen() {
+    if (!idbPromise) {
+      idbPromise = new Promise(function (resolve, reject) {
+        if (typeof indexedDB === "undefined") { reject(new Error("indexedDB unavailable")); return; }
+        var req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = function () {
+          var db = req.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error || new Error("indexedDB open failed")); };
+        req.onblocked = function () { reject(new Error("indexedDB blocked")); };
+      });
+    }
+    return idbPromise;
+  }
+
+  function idbGet(key) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, "readonly");
+        var r = tx.objectStore(IDB_STORE).get(key);
+        r.onsuccess = function () { resolve(r.result === undefined ? null : r.result); };
+        r.onerror = function () { reject(r.error); };
+      });
+    });
+  }
+
+  function idbGetMany(keys) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, "readonly");
+        var st = tx.objectStore(IDB_STORE);
+        var out = new Array(keys.length);
+        keys.forEach(function (k, i) {
+          var r = st.get(k);
+          r.onsuccess = function () { out[i] = r.result || null; };
+        });
+        tx.oncomplete = function () { resolve(out); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function idbPut(key, value) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(value, key);
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = function () { reject(tx.error); };
+        tx.onabort = function () { reject(tx.error || new Error("transaction aborted")); };
+      });
+    });
+  }
+
+  function idbDelete(keys) {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, "readwrite");
+        var st = tx.objectStore(IDB_STORE);
+        keys.forEach(function (k) { st.delete(k); });
+        tx.oncomplete = function () { resolve(true); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    });
+  }
+
+  function idbAllKeys() {
+    return idbOpen().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(IDB_STORE, "readonly");
+        var r = tx.objectStore(IDB_STORE).getAllKeys();
+        r.onsuccess = function () { resolve(r.result || []); };
+        r.onerror = function () { reject(r.error); };
+      });
+    });
+  }
 
   function cacheReady() {
     return (typeof caches !== "undefined") && (typeof Response !== "undefined") && window.isSecureContext;
@@ -105,142 +199,233 @@
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persist().catch(function () {});
   }
-  // The old service worker is no longer used; retire any leftover registration so it
-  // cannot re-download the parts behind our back.
+  // The old service worker is no longer used; retire any leftover registration.
   if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
     navigator.serviceWorker.getRegistrations().then(function (regs) {
       regs.forEach(function (r) { r.unregister(); });
     }).catch(function () {});
   }
 
-  function setDownloadStatus(bytesLoaded) {
-    var pct = Math.min(100, Math.round((bytesLoaded / TOTAL_BYTES) * 100));
+  // ---- progress ----
+  function setDownloadStatus(bytes, resumed) {
+    var pct = Math.min(100, Math.round((bytes / TOTAL_BYTES) * 100));
     progressBar.style.width = pct + "%";
-    var mb = (bytesLoaded / (1024 * 1024)).toFixed(1);
-    var total = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
-    statusEl.textContent = "Downloading " + mb + " MB / " + total + " MB (" + pct + "%)";
+    var mb = (bytes / (1024 * 1024)).toFixed(1);
+    var label = (resumed && bytes > 0) ? "Resuming" : "Downloading";
+    statusEl.textContent = label + " " + mb + " MB / " + SIZE_MB + " MB (" + pct + "%) · resumable";
   }
 
-  function fetchOne(url, size, onChunk) {
-    return fetch(url, { cache: "force-cache" }).then(function (res) {
-      if (!res.ok) throw new Error("fetch " + url + " HTTP " + res.status);
-      if (!res.body) throw new Error("fetch " + url + ": no stream");
-      var reader = res.body.getReader();
-      var chunks = [];
-      var got = 0;
-      return (function pump() {
-        return reader.read().then(function (r) {
-          if (r.done) return new Blob(chunks);
-          chunks.push(r.value);
-          got += r.value.byteLength;
-          if (onChunk) onChunk(got, size);
-          return pump();
-        });
-      })();
+  // ---- stored archive lookup ----
+  function readIndexedArchive() {
+    return idbGet(IDB_DATA_KEY).then(function (rec) {
+      if (rec && rec.blob && rec.size === TOTAL_BYTES) {
+        return { blob: rec.blob, source: "indexeddb" };
+      }
+      if (rec) idbDelete([IDB_DATA_KEY]).catch(function () {});
+      return null;
+    }).catch(function (err) {
+      log("IndexedDB read failed", err);
+      return null;
     });
   }
 
-  function fetchPartsFromNetwork() {
-    var loaded = [0, 0];
-    progressShell.style.display = "";
-    statusEl.textContent = "Connecting…";
-    return Promise.all(PART_NAMES.map(function (name, i) {
-      return fetchOne(PART_URLS[i], PART_SIZES[i], function (got) {
-        loaded[i] = got;
-        setDownloadStatus(loaded[0] + loaded[1]);
-      });
-    })).then(function (blobs) {
-      return new Blob(blobs, { type: "application/octet-stream" });
-    });
-  }
-
-  // Look through every cache for either our consolidated archive or the old
-  // split parts (so existing visitors migrate without re-downloading anything).
-  function findCachedData() {
+  // Legacy Cache Storage lookup (also migrates the old split parts).
+  function readCacheStorageArchive() {
     if (!cacheReady()) return Promise.resolve(null);
     return caches.keys().then(function (names) {
       return Promise.all(names.map(function (name) {
         return caches.open(name).then(function (cache) {
           return Promise.all([
             cache.match(DATA_KEY),
-            cache.match(PART_URLS[0]),
-            cache.match(PART_URLS[1])
+            cache.match(PART_URLS[0], { ignoreSearch: true }),
+            cache.match(PART_URLS[1], { ignoreSearch: true })
           ]).then(function (hits) {
-            var single = hits[0], a = hits[1], b = hits[2];
-
-            // 1) Our consolidated archive. Accept it only when the byte count
-            //    matches what this build expects; then boot with no download.
-            if (single) {
-              return single.blob().then(function (blob) {
-                if (blob.size === TOTAL_BYTES) {
-                  return { blob: blob, consolidated: true };
-                }
-                return caches.open(name).then(function (c) {
-                  return c.delete(DATA_KEY);
-                }).then(function () { return null; });
+            if (hits[0]) {
+              return hits[0].blob().then(function (blob) {
+                if (blob.size === TOTAL_BYTES) return { blob: blob, source: "cachestorage" };
+                return caches.open(name).then(function (c) { return c.delete(DATA_KEY); }).then(function () { return null; });
               });
             }
-
-            // 2) Legacy split parts from the retired service worker: migrate
-            //    them into the single archive without re-downloading.
-            if (a && b) {
-              return Promise.all([a.blob(), b.blob()]).then(function (bs) {
+            if (hits[1] && hits[2]) {
+              return Promise.all([hits[1].blob(), hits[2].blob()]).then(function (bs) {
                 if (bs[0].size + bs[1].size !== TOTAL_BYTES) return null;
                 return {
                   blob: new Blob(bs, { type: "application/octet-stream" }),
-                  consolidated: false
+                  source: "legacy-parts"
                 };
               });
             }
-
             return null;
           });
         }).catch(function () { return null; });
       })).then(function (results) {
-        for (var i = 0; i < results.length; i++) {
-          if (results[i]) return results[i];
-        }
+        for (var i = 0; i < results.length; i++) if (results[i]) return results[i];
         return null;
       });
     }).catch(function () { return null; });
   }
 
-  function storeData(blob) {
+  function storeInCacheStorage(blob) {
     if (!cacheReady()) return Promise.resolve(false);
     return caches.open(DATA_CACHE).then(function (cache) {
       return cache.put(DATA_KEY, new Response(blob, {
         headers: { "Content-Type": "application/octet-stream" }
       }));
-    }).then(function () {
-      return true;
-    }).catch(function (err) {
-      console.warn("could not cache game data:", err);
+    }).then(function () { return true; }).catch(function (err) {
+      log("Cache Storage write failed", err);
       return false;
     });
   }
 
-  // Drop archives belonging to other builds; keep only this build's entry.
-  function pruneDataCache() {
-    if (!cacheReady()) return Promise.resolve();
-    return caches.open(DATA_CACHE).then(function (cache) {
-      return cache.keys().then(function (reqs) {
-        return Promise.all(reqs.map(function (req) {
-          if (req.url !== DATA_KEY) return cache.delete(req);
-        }));
+  // ---- chunk helpers ----
+  function partChunkCount(part) {
+    return Math.ceil(PART_SIZES[part] / CHUNK_SIZE);
+  }
+  function chunkKey(part, i) {
+    return IDB_CHUNK_NS + part + ":" + i;
+  }
+  function chunkExpectedSize(part, i) {
+    return Math.min(PART_SIZES[part], (i + 1) * CHUNK_SIZE) - i * CHUNK_SIZE;
+  }
+
+  function existingChunks(part) {
+    var count = partChunkCount(part);
+    var keys = [];
+    for (var i = 0; i < count; i++) keys.push(chunkKey(part, i));
+    memChunks[part] = [];
+    return idbGetMany(keys).then(function (recs) {
+      var bytes = 0, filled = 0;
+      for (var i = 0; i < recs.length; i++) {
+        var r = recs[i];
+        if (!r || !r.byteLength || r.byteLength !== chunkExpectedSize(part, i)) break;
+        memChunks[part].push(r);
+        bytes += r.byteLength;
+        filled++;
+      }
+      return { filled: filled, bytes: bytes };
+    }).catch(function (err) {
+      log("IndexedDB chunk read failed; resume disabled", err);
+      idbOk = false;
+      memChunks[part] = [];
+      return { filled: 0, bytes: 0 };
+    });
+  }
+
+  // Downloads one part in 4 MiB chunks, skipping chunks already on disk.
+  function downloadPartResumable(part, onProgress) {
+    var size = PART_SIZES[part];
+    var url = PART_FETCH_URLS[part];
+    var count = partChunkCount(part);
+
+    return existingChunks(part).then(function (st) {
+      var next = st.filled;
+      var have = st.bytes;
+      onProgress(part, have, next > 0);
+
+      function storeChunk(idx, buf) {
+        memChunks[part][idx] = buf;
+        if (!idbOk) return Promise.resolve(false);
+        return idbPut(chunkKey(part, idx), buf).catch(function (err) {
+          log("IndexedDB chunk write failed; resume disabled for this session", err);
+          idbOk = false;
+          return false;
+        });
+      }
+
+      function step() {
+        if (next >= count) return Promise.resolve();
+        var start = next * CHUNK_SIZE;
+        var end = Math.min(size, start + CHUNK_SIZE) - 1;
+
+        return fetch(url, {
+          headers: { "Range": "bytes=" + start + "-" + end },
+          cache: "force-cache"
+        }).then(function (res) {
+          if (res.status === 206) {
+            return res.arrayBuffer().then(function (buf) {
+              var idx = next;
+              return storeChunk(idx, buf).then(function () {
+                have += buf.byteLength;
+                next = idx + 1;
+                onProgress(part, have, false);
+                return step();
+              });
+            });
+          }
+
+          if (res.ok && res.status === 200) {
+            // Server ignored Range: take the whole part once, then split it.
+            return res.arrayBuffer().then(function (buf) {
+              var chain = Promise.resolve();
+              for (var i = next; i < count; i++) {
+                (function (idx) {
+                  chain = chain.then(function () {
+                    var s = idx * CHUNK_SIZE;
+                    var e = Math.min(size, s + CHUNK_SIZE);
+                    var slice = buf.slice(s, e);
+                    return storeChunk(idx, slice).then(function () {
+                      have += slice.byteLength;
+                      onProgress(part, have, false);
+                    });
+                  });
+                })(i);
+              }
+              return chain.then(function () { next = count; });
+            });
+          }
+
+          throw new Error("HTTP " + res.status + " for " + url);
+        });
+      }
+
+      return step();
+    });
+  }
+
+  function assembleArchive() {
+    var parts = [0, 1].map(function (part) {
+      var count = partChunkCount(part);
+      var list = memChunks[part];
+      if (list.length === count && list.every(function (b) { return b && b.byteLength; })) {
+        return new Blob(list);
+      }
+      var keys = [];
+      for (var i = 0; i < count; i++) keys.push(chunkKey(part, i));
+      return idbGetMany(keys).then(function (recs) {
+        if (recs.length !== count || recs.some(function (r) { return !r || !r.byteLength; })) {
+          throw new Error("missing chunk data for part " + part);
+        }
+        return new Blob(recs);
       });
-    }).catch(function () {});
+    });
+    return Promise.all(parts).then(function (blobs) {
+      return new Blob(blobs, { type: "application/octet-stream" });
+    });
   }
 
-  // Only remove the old split-part cache once the single archive is safely stored.
-  function dropLegacyCaches() {
-    if (!cacheReady()) return Promise.resolve();
-    return caches.keys().then(function (names) {
-      return Promise.all(names.map(function (name) {
-        if (name !== DATA_CACHE) return caches.delete(name);
-      }));
-    }).catch(function () {});
+  function persistArchive(blob) {
+    return idbPut(IDB_DATA_KEY, { blob: blob, size: blob.size, build: DATA_BUILD, savedAt: Date.now() })
+      .then(function () {
+        log("archive stored in IndexedDB (" + SIZE_MB + " MB)");
+        // IndexedDB has it; drop any duplicate Cache Storage copy.
+        if (cacheReady()) caches.open(DATA_CACHE).then(function (c) { c.delete(DATA_KEY); }).catch(function () {});
+        return true;
+      })
+      .catch(function (err) {
+        log("IndexedDB archive store failed; trying Cache Storage", err);
+        return storeInCacheStorage(blob);
+      });
   }
 
+  function clearChunks() {
+    var cleanup = idbAllKeys().then(function (keys) {
+      var doomed = keys.filter(function (k) { return typeof k === "string" && k.indexOf("chunk:") === 0; });
+      if (doomed.length) return idbDelete(doomed);
+    }).catch(function () {});
+    return cleanup.then(function () { memChunks = [[], []]; });
+  }
+
+  // ---- boot ----
   function boot(dataUrl) {
     var config = {
       devicePixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
@@ -267,11 +452,11 @@
       if (!fromCache) progressBar.style.width = "100%";
       createUnityInstance(canvas, config, function (progress) {
         var n = Math.max(0, Math.min(100, Math.round(progress * 100)));
-        if (!fromCache) {
+        if (fromCache) {
+          statusEl.textContent = "Starting from cache… (0 MB downloaded)";
+        } else {
           progressBar.style.width = n + "%";
           statusEl.textContent = "Starting… " + n + "%";
-        } else {
-          statusEl.textContent = "Starting from cache… (0 MB downloaded)";
         }
       }).then(function () {
         loadingEl.style.display = "none";
@@ -286,62 +471,71 @@
     document.body.appendChild(script);
   }
 
-  var SIZE_MB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
-  var startedAt = performance.now();
   var fromCache = false;
+  var startedAt = performance.now();
 
-  function startFromCached(cached) {
-    // No download to report: hide the byte bar so it never shows 0 MB.
+  function startFromCache(hit) {
     fromCache = true;
     progressShell.style.display = "none";
     statusEl.textContent = "Loaded from cache — no download · starting…";
     setBadge("cache: HIT · 0 MB downloaded");
-    log("cache HIT in " + Math.round(performance.now() - startedAt) + " ms · " + SIZE_MB + " MB · zero network requests");
-    boot(URL.createObjectURL(cached.blob));
-    if (!cached.consolidated) {
-      storeData(cached.blob).then(function (ok) {
-        if (ok) { dropLegacyCaches(); pruneDataCache(); }
-      });
-    }
+    log("cache HIT in " + Math.round(performance.now() - startedAt) + " ms · source=" + hit.source + " · zero network requests");
+    boot(URL.createObjectURL(hit.blob));
   }
 
-  function startFromNetwork() {
+  function startDownload() {
     setBadge("cache: MISS — downloading " + SIZE_MB + " MB", "#e0b050");
-    log("cache MISS — first visit or cache cleared; downloading " + SIZE_MB + " MB");
-    return fetchPartsFromNetwork().then(function (blob) {
-      var url = URL.createObjectURL(blob);
-      boot(url);
-      // Persist after boot starts so the player sees the game as soon as possible.
-      storeData(blob).then(function (ok) {
+    progressShell.style.display = "";
+    statusEl.textContent = "Checking for a partial download…";
+    log("cache MISS — resumable download in " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks");
+
+    var progress = [0, 0];
+    var resumed = false;
+
+    return Promise.all([0, 1].map(function (part) {
+      return downloadPartResumable(part, function (p, bytes, wasResumed) {
+        progress[p] = bytes;
+        if (wasResumed) resumed = true;
+        setDownloadStatus(progress[0] + progress[1], resumed);
+      });
+    })).then(function () {
+      statusEl.textContent = "Assembling game data…";
+      return assembleArchive();
+    }).then(function (blob) {
+      if (blob.size !== TOTAL_BYTES) {
+        throw new Error("assembled " + blob.size + " bytes, expected " + TOTAL_BYTES);
+      }
+      boot(URL.createObjectURL(blob));
+      return persistArchive(blob).then(function (ok) {
         if (ok) {
-          dropLegacyCaches();
-          pruneDataCache();
           setBadge("cache: STORED · " + SIZE_MB + " MB · next load is instant");
           log("cache STORED · next load will not download");
+          clearChunks();
         } else {
           setBadge("cache: STORE FAILED — will re-download", "#e06060");
-          log("cache STORE FAILED — this browser refused to persist the archive");
+          log("cache STORE FAILED — browser refused both IndexedDB and Cache Storage");
         }
       });
     }).catch(function (err) {
       statusEl.textContent = "Download failed: " + (err && err.message ? err.message : String(err));
+      log("download failed — saved chunks are kept, reload to resume", err);
     });
   }
 
-  if (!cacheReady()) {
-    setBadge("cache: unavailable in this context", "#e0b050");
-    log("Cache Storage unavailable (needs HTTPS; some private windows block persistence)");
-  }
-  log("build " + DATA_BUILD + " · archive key " + DATA_KEY);
+  log("build " + DATA_BUILD + " · " + (CHUNK_SIZE / (1024 * 1024)) + " MB chunks · IndexedDB primary");
 
-  findCachedData().then(function (cached) {
-    if (cached) {
-      startFromCached(cached);
+  readIndexedArchive().then(function (hit) {
+    if (hit) return hit;
+    return readCacheStorageArchive();
+  }).then(function (hit) {
+    if (hit) {
+      startFromCache(hit);
     } else {
-      return startFromNetwork();
+      return startDownload();
     }
   }).catch(function (err) {
     statusEl.textContent = "Startup failed: " + (err && err.message ? err.message : String(err));
+    log("startup failed", err);
   });
 </script>
 </body>
