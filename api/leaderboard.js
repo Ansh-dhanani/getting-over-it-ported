@@ -1,7 +1,11 @@
 // Fastest full-completion leaderboard - Neon PostgreSQL backend.
 //
-//   GET  /api/leaderboard  -> { ok: true, top: [{ name, ms, at }], count }
-//   POST /api/leaderboard  -> body: { name, ms }  ->  { ok: true, rank: n }
+//   GET  /api/leaderboard  -> { ok: true, top: [{ name, ms, at }], page, per_page, total, pages }
+//   POST /api/leaderboard  -> body: { name, ms }  ->  { ok: true, rank, improved, best_ms }
+//
+// One row per nickname (case-insensitive); the fastest time for a name is
+// kept. Names are required - there is no anonymous/default entry. Ranks are
+// 0-based (count of entries sorted faster).
 //
 // Storage: two tables in the Neon database (goi_leaderboard, goi_rl), created
 // automatically on first request. Writes use raw fetch through the Neon
@@ -14,7 +18,8 @@
 // Anti-cheat: entries are client-reported, so times are only trusted loosely.
 // Sane bounds are enforced server-side and writes are rate limited per IP
 // (fixed 60s window). A determined cheater can forge a request - unavoidable
-// without server-side replay, which is out of scope.
+// without server-side replay, which is out of scope. Names/device are not
+// verified, so anyone can use any name; this is a casual community board.
 
 const MIN_MS = 60 * 1000;                       // 1 minute - no real run is faster
 const MAX_MS = 7 * 24 * 60 * 60 * 1000;         // one week
@@ -47,6 +52,7 @@ function ensureSchema() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )`;
       await s`CREATE INDEX IF NOT EXISTS goi_leaderboard_ms_idx ON goi_leaderboard (ms)`;
+      await s`CREATE UNIQUE INDEX IF NOT EXISTS goi_leaderboard_name_unique ON goi_leaderboard (LOWER(name))`;
       await s`CREATE TABLE IF NOT EXISTS goi_rl (
         ip TEXT PRIMARY KEY,
         hits INT NOT NULL DEFAULT 0,
@@ -61,7 +67,6 @@ function cleanName(raw) {
   let s = String(raw == null ? "" : raw);
   s = s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/[<>]/g, "");
   s = s.replace(/\s+/g, " ").trim();
-  if (!s) s = "Anonymous";
   return s.slice(0, MAX_NAME_LEN);
 }
 
@@ -100,8 +105,8 @@ module.exports = async function handler(req, res) {
     const s = getSql();
 
     if (req.method === "GET") {
-      const perPage = Math.min(100, Math.max(1, parseInt(req.query && req.query.per_page, 10) || 25));
-      const page = Math.max(1, parseInt(req.query && req.query.page, 10) || 1);
+      const perPage = Math.min(100, Math.max(1, parseInt((req.query && req.query.per_page), 10) || 25));
+      const page = Math.max(1, parseInt((req.query && req.query.page), 10) || 1);
       const totalRows = await s`SELECT COUNT(*)::int AS c FROM goi_leaderboard`;
       const total = Number(totalRows[0].c);
       const offset = (page - 1) * perPage;
@@ -139,10 +144,29 @@ module.exports = async function handler(req, res) {
         return send(res, 400, { ok: false, error: "Time is out of the allowed range." });
       }
       const name = cleanName(body && body.name);
-      await s`INSERT INTO goi_leaderboard (name, ms) VALUES (${name}, ${ms})`;
-      const rankRows = await s`SELECT COUNT(*)::int AS faster FROM goi_leaderboard WHERE ms < ${ms}`;
+      if (!name) {
+        return send(res, 400, { ok: false, error: "Name required." });
+      }
+
+      // Fastest clear wins per unique nickname (case-insensitive): if the
+      // name is new, insert; if the new time isn't faster, keep the stored
+      // best; otherwise replace it.
+      const existing = await s`
+        SELECT id, ms FROM goi_leaderboard WHERE LOWER(name) = LOWER(${name})`;
+      let improved = true;
+      if (existing.length > 0) {
+        if (ms >= Number(existing[0].ms)) {
+          improved = false;
+        } else {
+          await s`UPDATE goi_leaderboard SET name = ${name}, ms = ${ms}, created_at = now() WHERE id = ${existing[0].id}`;
+        }
+      } else {
+        await s`INSERT INTO goi_leaderboard (name, ms) VALUES (${name}, ${ms})`;
+      }
+      const effectiveMs = improved ? ms : Number(existing.length > 0 ? existing[0].ms : ms);
+      const rankRows = await s`SELECT COUNT(*)::int AS faster FROM goi_leaderboard WHERE ms < ${effectiveMs}`;
       const rank = Number(rankRows[0].faster);
-      return send(res, 200, { ok: true, rank });
+      return send(res, 200, { ok: true, rank, improved, best_ms: effectiveMs });
     }
 
     res.setHeader("Allow", "GET, POST");

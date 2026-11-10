@@ -257,12 +257,12 @@
   window.addEventListener("orientationchange", fit);
 
   // ---- constants ---------------------------------------------------------
-  var PART_NAMES = ["parts/fwbr.part1", "parts/fwbr.part2"];
-  var PART_SIZES = [72623616, 72623616];
+  var PART_NAMES = ["parts/mp6.part1", "parts/mp6.part2"];
+  var PART_SIZES = [72636074, 72636074];
   var TOTAL_BYTES = PART_SIZES[0] + PART_SIZES[1];
   var SIZE_MB = (TOTAL_BYTES / (1024 * 1024)).toFixed(1);
 
-  var DATA_BUILD = "fw-2026-11-08";  // bump when game files change
+  var DATA_BUILD = "mp6-2026-11-08";  // bump when game files change
   var IDB_NAME = "goi-archive";
   var IDB_STORE = "files";
   var IDB_DATA_KEY = "data:" + DATA_BUILD;
@@ -275,9 +275,9 @@
     return new URL(n + "?v=" + encodeURIComponent(DATA_BUILD), BASE).href;
   });
 
-  var loaderUrl = BASE + "u6_mian_fullwidth_br.loader.js";
-  var frameworkUrl = BASE + "u6_mian_fullwidth_br.framework.js.unityweb";
-  var codeUrl = BASE + "u6_mian_fullwidth_br.wasm.unityweb";
+  var loaderUrl = BASE + "u6_mian_mp6.loader.js";
+  var frameworkUrl = BASE + "u6_mian_mp6.framework.js.unityweb";
+  var codeUrl = BASE + "u6_mian_mp6.wasm.unityweb";
 
   // ---- leaderboard (fastest full clear) --------------------------------
   var LB_API = BASE + "api/leaderboard";
